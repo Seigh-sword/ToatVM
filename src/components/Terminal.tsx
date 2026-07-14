@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { proxyWs } from "../proxy";
 
 // ttyd (v1) protocol over a WebSocket.
 //
@@ -67,9 +68,9 @@ export function Terminal({ url, connected }: TerminalProps) {
       return;
     }
 
-    const wsUrl = url.replace(/\/$/, "") + "/websocket";
+    const wsUrl = proxyWs(url);
     term.writeln("");
-    term.writeln(`\x1b[38;5;82mConnecting to ${url} ...\x1b[0m`);
+    term.writeln(`\x1b[38;5;82mConnecting to VM (via proxy) ...\x1b[0m`);
 
     let ws: WebSocket;
     try {

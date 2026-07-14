@@ -66,10 +66,26 @@ survive the 1h cache-and-restart cycle.
 
 ## Start / Stop
 
-- **Boot VM** clears the stop flag and dispatches the workflow.
-- **Shut down** sets a `VM_STOP` repo variable (via your PAT) and cancels any
-  running/queued runs. The workflow checks `VM_STOP` before booting and before
-  re-dispatching, so the machine stays off until you Boot again.
+- **Boot VM** clears the `VM_STOP` flag and dispatches the workflow.
+- **Shut down** sets `VM_STOP` (via your PAT). The runner's boot loop wakes up
+  every 10s, detects the flag, **saves the cache, then exits** — so shutdown is
+  graceful, not a hard kill. The re-dispatch step then sees the flag and stops
+  the cycle. The VM stays off until you Boot again.
+
+## In-page access (no raw tunnel URL)
+
+The runner still uses a `cloudflared` tunnel, but the random
+`*.trycloudflare.com` URL is never shown or used directly. A Cloudflare Pages
+Function (`functions/proxy/[...path].ts`) reverse-proxies both the terminal
+WebSocket and noVNC to the runner. The tunnel URL is base64url-encoded into the
+path and the proxy only forwards to `*.trycloudflare.com` hosts. The browser
+talks only to `toatvm.pages.dev/proxy/...`, keeping everything inside the page.
+
+## Multiple accounts
+
+Use **+ account** in the top bar to save several GitHub accounts (owner/repo/
+PAT). Switch between them with the dropdown — each account manages its own VM
+session via its own repo's `VM_STOP` variable and workflows.
 5. Each **cycle runs ~1 hour**, then the runner saves its `vm-state` to
    Actions cache and re-dispatches itself. A single job is capped at **6 hours**
    by GitHub; the re-dispatch keeps the machine alive across runs by restoring

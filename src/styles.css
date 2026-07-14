@@ -75,6 +75,28 @@ body {
   border-color: #ff7b7b55;
 }
 
+.account-switch {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.account-switch select {
+  background: #131a2b;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 13px;
+  max-width: 260px;
+}
+
+.proxied {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
 .layout {
   display: grid;
   grid-template-columns: 320px 1fr;

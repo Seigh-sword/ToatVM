@@ -9,29 +9,37 @@
 const GITHUB_API = "https://api.github.com";
 
 export interface GitHubAuth {
+  id: string;
+  name: string;
   token: string;
   owner: string;
   repo: string;
 }
 
-export const AUTH_KEY = "toatvm.auth";
+const ACCOUNTS_KEY = "toatvm.accounts";
+const ACTIVE_KEY = "toatvm.active";
 
-export function saveAuth(auth: GitHubAuth): void {
-  localStorage.setItem(AUTH_KEY, JSON.stringify(auth));
+export function loadAccounts(): GitHubAuth[] {
+  const raw = localStorage.getItem(ACCOUNTS_KEY);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as GitHubAuth[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
 }
 
-export function loadAuth(): GitHubAuth | null {
-  const raw = localStorage.getItem(AUTH_KEY);
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw) as Partial<GitHubAuth>;
-    if (parsed.token && parsed.owner && parsed.repo) {
-      return parsed as GitHubAuth;
-    }
-    return null;
-  } catch {
-    return null;
-  }
+export function saveAccounts(accounts: GitHubAuth[]): void {
+  localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts));
+}
+
+export function loadActiveId(): string | null {
+  return localStorage.getItem(ACTIVE_KEY);
+}
+
+export function saveActiveId(id: string): void {
+  localStorage.setItem(ACTIVE_KEY, id);
 }
 
 function headers(auth: GitHubAuth): Record<string, string> {
