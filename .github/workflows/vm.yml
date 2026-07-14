@@ -1,0 +1,123 @@
+name: ToatVM Session
+
+# ToatVM: a "virtual machine" that actually lives inside a GitHub Actions
+# runner. This workflow:
+#   1. Restores the previous runner state from cache (the "disk").
+#   2. Installs ttyd (a terminal over WebSocket) + cloudflared (a tunnel).
+#   3. Starts a tmux session and exposes it to the public internet.
+#   4. Publishes the public URL to a repo variable (VM_URL) so the website
+#      can connect to it.
+#   5. Sleeps for one cycle (~1h), saves state to cache, and re-dispatches
+#      itself to keep the machine alive (up to the 6h job timeout, after
+#      which the next run resumes from cache).
+#
+# ⚠ Experimental. Runners are public, not private, and not for permanent
+#   or production use. Do not run anything you care about here. or something
+#   personal.
+
+on:
+  workflow_dispatch:
+    inputs:
+      lifetime:
+        description: "Minutes each cycle runs before caching + restart"
+        required: false
+        default: "60"
+  repository_dispatch:
+    types: [toatvm-boot]
+
+concurrency:
+  group: toatvm
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  vm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360 
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Restore VM state
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            vm-state
+          key: toatvm-state-${{ github.run_id }}
+          restore-keys: |
+            toatvm-state-
+
+      - name: Install runtime (ttyd + cloudflared + tmux)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq tmux
+          curl -fsSL https://github.com/tsl0922/ttyd/releases/download/1.7.4/ttyd.x86_64 \
+            -o /usr/local/bin/ttyd
+          chmod +x /usr/local/bin/ttyd
+          curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
+            -o /usr/local/bin/cloudflared
+          chmod +x /usr/local/bin/cloudflared
+          echo "runner: $(free -h | awk '/Mem/ {print $2}') RAM"
+
+      - name: Boot VM session
+        id: boot
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p vm-state
+          if [ ! -f vm-state/.booted ]; then
+            echo "Welcome to ToatVM — first boot $(date -u)" > vm-state/.booted
+          fi
+
+          
+          tmux kill-session -t toatvm 2>/dev/null || true
+          tmux new-session -d -s toatvm "bash -c 'cd vm-state; exec bash'" || true
+
+          
+          nohup ttyd -p 7681 -W tmux attach -t toatvm >/tmp/ttyd.log 2>&1 &
+
+          
+          nohup cloudflared tunnel --url http://localhost:7681 --no-autoupdate \
+            >/tmp/cf.log 2>&1 &
+
+          
+          for i in $(seq 1 30); do
+            URL=$(grep -oE 'https://[a-z0-9.-]+\.trycloudflare\.com' /tmp/cf.log | head -n1 || true)
+            if [ -n "$URL" ]; then break; fi
+            sleep 2
+          done
+
+          if [ -z "$URL" ]; then
+            echo "::error::Could not establish tunnel"; cat /tmp/cf.log; exit 1
+          fi
+
+          echo "VM_URL=$URL" >> "$GITHUB_OUTPUT"
+          gh variable set VM_URL --body "$URL" --repo "$GITHUB_REPOSITORY"
+          echo "ToatVM is live at $URL"
+
+          
+          LIFETIME="${{ github.event.inputs.lifetime || '60' }}"
+          echo "Running cycle for ${LIFETIME} minutes..."
+          sleep "$(( LIFETIME * 60 ))"
+
+      - name: Save VM state
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            vm-state
+          key: toatvm-state-${{ github.run_id }}
+
+      - name: Re-dispatch next session
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run vm.yml --ref "$GITHUB_REF_NAME" \
+            -f lifetime="${{ github.event.inputs.lifetime || '60' }}"
+          echo "Re-dispatched ToatVM. State was cached for the next run."

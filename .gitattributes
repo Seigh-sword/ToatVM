@@ -1,0 +1,19 @@
+# Auto-detect text files and perform LF normalization
+* text=auto eol=lf
+
+*.ts text
+*.tsx text
+*.js text
+*.jsx text
+*.json text
+*.yml text
+*.yaml text
+*.md text
+*.css text
+*.html text
+
+# Binary assets should not be normalized
+*.png binary
+*.jpg binary
+*.svg text
+*.ico binary
