@@ -36,6 +36,19 @@ working even after the site is hosted on Cloudflare.
    workflow write permission, also to a `VM_URL` repo variable). The site
    reads the URL from the run's job logs using *your* PAT — so no special
    token permission is required for discovery.
+
+## Terminal vs Desktop
+
+The site has two modes (toggle in the panel):
+
+- **Terminal** — boots `vm.yml`: a `tmux` + `ttyd` shell you drive from an
+  `xterm.js` terminal in the browser.
+- **Desktop** — boots `vm-desktop.yml`: a full XFCE desktop via TigerVNC +
+  noVNC, shown in the browser through an embedded noVNC client
+  (`/vnc.html?path=websockify`). You get a real GUI (browser, editor, etc.).
+
+Both modes run on the same kind of runner and follow the same 1h cache-and-
+restart / 6h cap cycle. They are independent workflows — boot each separately.
 5. Each **cycle runs ~1 hour**, then the runner saves its `vm-state` to
    Actions cache and re-dispatches itself. A single job is capped at **6 hours**
    by GitHub; the re-dispatch keeps the machine alive across runs by restoring
@@ -85,7 +98,9 @@ frontend is hosted.
 ## Project layout
 
 ```
-.github/workflows/vm.yml   The "VM": runner bootstrap, tunnel, cache loop
+.github/workflows/vm.yml        The "VM": terminal runner (tmux + ttyd + cloudflared)
+.github/workflows/vm-desktop.yml  The "Desktop": XFCE + TigerVNC + noVNC + cloudflared
+.github/workflows/ci.yml         Build check (proves `npm run build` passes)
 src/api.ts                 GitHub REST client (dispatch / read VM_URL / runs)
 src/components/Terminal.tsx  xterm.js client for the ttyd WebSocket
 src/App.tsx                Session panel + connection orchestration
@@ -96,4 +111,4 @@ wrangler.toml             Cloudflare Pages deploy config
 
 ## License
 
-MIT — see [LICENSE](./LICENSE).
+MIT [LICENSE](./LICENSE).

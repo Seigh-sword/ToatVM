@@ -1,0 +1,135 @@
+name: ToatVM Desktop
+
+# A graphical desktop inside a GitHub Actions runner. This workflow installs
+# XFCE (a lightweight desktop), a TigerVNC server, and noVNC (a browser VNC
+# client served over WebSocket via websockify), then tunnels noVNC to the
+# public internet with cloudflared. Open the tunnel URL's /vnc.html in the
+# ToatVM site's "Desktop" tab to get a full GUI.
+#
+# State (vm-state) is cached between 1h cycles and the run re-dispatches
+# itself, exactly like vm.yml. Same 6h per-run cap applies.
+#
+# ⚠ Experimental. The desktop is reachable by anyone with the random tunnel
+#   URL. No authentication is applied beyond that random URL.
+
+on:
+  workflow_dispatch:
+    inputs:
+      lifetime:
+        description: "Minutes each cycle runs before caching + restart"
+        required: false
+        default: "60"
+  repository_dispatch:
+    types: [toatvm-desktop-boot]
+
+concurrency:
+  group: toatvm-desktop
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  desktop:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Restore VM state
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            vm-state
+          key: toatvm-desktop-state-${{ github.run_id }}
+          restore-keys: |
+            toatvm-desktop-state-
+
+      - name: Install desktop (XFCE + TigerVNC + noVNC)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            xfce4 xfce4-goodies \
+            tigervnc-standalone-server \
+            novnc websockify \
+            dbus-x11
+          echo "desktop memory: $(free -h | awk '/Mem/ {print $2}')"
+
+      - name: Boot desktop session
+        id: boot
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p vm-state
+          if [ ! -f vm-state/.booted ]; then
+            echo "Welcome to ToatVM Desktop — first boot $(date -u)" > vm-state/.booted
+          fi
+
+          # VNC auth: we run passwordless (None) and rely on the random
+          # tunnel URL for protection. A passwd file is still created so the
+          # server starts cleanly.
+          mkdir -p "$HOME/.vnc"
+          printf 'toatvm\n' | vncpasswd -f > "$HOME/.vnc/passwd" 2>/dev/null || true
+          chmod 600 "$HOME/.vnc/passwd" 2>/dev/null || true
+
+          cat > "$HOME/.vnc/xstartup" <<'EOF'
+          #!/bin/sh
+          unset SESSION_MANAGER
+          unset DBUS_SESSION_BUS_ADDRESS
+          exec startxfce4
+          EOF
+          chmod +x "$HOME/.vnc/xstartup"
+
+          # Start the VNC server (display :1 -> TCP 5901)
+          vncserver :1 -geometry 1280x720 -depth 24 -SecurityTypes None \
+            || vncserver :1 -geometry 1280x720 -depth 24
+
+          # noVNC web client + websocket proxy to the VNC server
+          nohup websockify --web /usr/share/novnc 6080 localhost:5901 \
+            >/tmp/novnc.log 2>&1 &
+
+          # Public tunnel to the noVNC port (6080)
+          nohup cloudflared tunnel --url http://localhost:6080 --no-autoupdate \
+            >/tmp/cf.log 2>&1 &
+
+          for i in $(seq 1 60); do
+            URL=$(grep -oE 'https://[a-z0-9.-]+\.trycloudflare\.com' /tmp/cf.log | head -n1 || true)
+            if [ -n "$URL" ]; then break; fi
+            sleep 2
+          done
+
+          if [ -z "$URL" ]; then
+            echo "::error::Could not establish tunnel"; cat /tmp/cf.log; exit 1
+          fi
+
+          echo "VM_URL=$URL" >> "$GITHUB_OUTPUT"
+          echo "ToatVM Desktop is live at $URL"
+          echo "Open: $URL/vnc.html?path=websockify&resize=scale&autoconnect=true"
+          echo "ToatVM Desktop is live at $URL" >> "$GITHUB_STEP_SUMMARY"
+          gh variable set VM_URL --body "$URL" --repo "$GITHUB_REPOSITORY" \
+            2>/dev/null || echo "note: VM_URL variable not set (needs workflow write perms; logs still work)"
+
+          LIFETIME="${{ github.event.inputs.lifetime || '60' }}"
+          echo "Desktop up. Running cycle for ${LIFETIME} minutes..."
+          sleep "$(( LIFETIME * 60 ))"
+
+      - name: Save VM state
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            vm-state
+          key: toatvm-desktop-state-${{ github.run_id }}
+
+      - name: Re-dispatch next session
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run vm-desktop.yml --ref "$GITHUB_REF_NAME" \
+            -f lifetime="${{ github.event.inputs.lifetime || '60' }}"
+          echo "Re-dispatched ToatVM Desktop."

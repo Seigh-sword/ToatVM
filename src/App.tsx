@@ -12,13 +12,14 @@ import {
 } from "./api";
 import { Terminal } from "./components/Terminal";
 
-const WORKFLOW_FILE = "vm.yml";
+type Mode = "terminal" | "desktop";
 const POLL_MS = 5000;
 
 type Status = "idle" | "booting" | "running" | "error" | "config";
 
 export default function App() {
   const [auth, setAuth] = useState<GitHubAuth | null>(() => loadAuth());
+  const [mode, setMode] = useState<Mode>("terminal");
   const [status, setStatus] = useState<Status>("config");
   const [vmUrl, setVmUrl] = useState<string | null>(null);
   const [runs, setRuns] = useState<WorkflowRun[]>([]);
@@ -26,10 +27,12 @@ export default function App() {
   const [message, setMessage] = useState<string | null>(null);
   const pollRef = useRef<number | null>(null);
 
+  const workflowFile = mode === "desktop" ? "vm-desktop.yml" : "vm.yml";
+
   const refresh = useCallback(
     async (a: GitHubAuth) => {
       try {
-        const recentRuns = await listRuns(a, WORKFLOW_FILE).catch(
+        const recentRuns = await listRuns(a, workflowFile).catch(
           () => [] as WorkflowRun[],
         );
         // Prefer the optional VM_URL variable; otherwise read the URL the
@@ -52,7 +55,7 @@ export default function App() {
         setStatus("error");
       }
     },
-    [],
+    [workflowFile],
   );
 
   useEffect(() => {
@@ -87,7 +90,7 @@ export default function App() {
     setError(null);
     setMessage("Dispatching ToatVM session...");
     try {
-      await dispatchWorkflow(auth, WORKFLOW_FILE, { lifetime: "60" });
+      await dispatchWorkflow(auth, workflowFile, { lifetime: "60" });
       setMessage("Session dispatched. The runner is booting (this takes ~1 min).");
       await refresh(auth);
     } catch (err) {
@@ -150,6 +153,21 @@ export default function App() {
                 </button>
               </div>
 
+              <div className="mode-toggle">
+                <button
+                  className={mode === "terminal" ? "btn small active" : "btn small"}
+                  onClick={() => setMode("terminal")}
+                >
+                  Terminal
+                </button>
+                <button
+                  className={mode === "desktop" ? "btn small active" : "btn small"}
+                  onClick={() => setMode("desktop")}
+                >
+                  Desktop
+                </button>
+              </div>
+
               <div className="controls">
                 <button
                   className="btn primary"
@@ -169,7 +187,9 @@ export default function App() {
 
               {vmUrl ? (
                 <div className="url-box">
-                  <span className="label">Runner terminal</span>
+                  <span className="label">
+                    Runner {mode === "desktop" ? "desktop" : "terminal"}
+                  </span>
                   <a href={vmUrl} target="_blank" rel="noreferrer">
                     {vmUrl}
                   </a>
@@ -208,7 +228,15 @@ export default function App() {
         </section>
 
         <section className="terminal-wrap">
-          <Terminal url={vmUrl} connected={connected} />
+          {mode === "desktop" && connected && vmUrl ? (
+            <iframe
+              className="desktop"
+              title="ToatVM Desktop"
+              src={`${vmUrl}/vnc.html?path=websockify&resize=scale&autoconnect=true`}
+            />
+          ) : (
+            <Terminal url={vmUrl} connected={connected} />
+          )}
         </section>
       </main>
     </div>
@@ -224,7 +252,7 @@ function ConfigForm({
     <form className="config" onSubmit={onSave}>
       <label>
         GitHub owner
-        <input name="owner" placeholder="Seigh-sword" required />
+        <input name="owner" placeholder="" required />
       </label>
       <label>
         Repository
