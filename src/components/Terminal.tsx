@@ -21,7 +21,7 @@ export function Terminal({ url, connected }: TerminalProps) {
   const fitRef = useRef<FitAddon | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
-
+  // Create the terminal once.
   useEffect(() => {
     if (!containerRef.current) return;
     const term = new XTerm({
@@ -55,7 +55,8 @@ export function Terminal({ url, connected }: TerminalProps) {
     };
   }, []);
 
- 
+  // Connect / disconnect the WebSocket when the url or connected flag changes.
+  useEffect(() => {
     const term = termRef.current;
     const fit = fitRef.current;
     if (!term || !fit) return;
@@ -85,7 +86,7 @@ export function Terminal({ url, connected }: TerminalProps) {
         JSON.stringify({ cols: term.cols, rows: term.rows }),
       );
       const frame = new Uint8Array(1 + payload.length);
-      frame[0] = 1; 
+      frame[0] = 1; // resize
       frame.set(payload, 1);
       ws.send(frame);
     };
@@ -118,7 +119,7 @@ export function Terminal({ url, connected }: TerminalProps) {
       if (ws.readyState !== WebSocket.OPEN) return;
       const payload = new TextEncoder().encode(data);
       const frame = new Uint8Array(1 + payload.length);
-      frame[0] = 0; 
+      frame[0] = 0; // input
       frame.set(payload, 1);
       ws.send(frame);
     });
