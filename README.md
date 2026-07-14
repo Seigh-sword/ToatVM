@@ -49,6 +49,27 @@ The site has two modes (toggle in the panel):
 
 Both modes run on the same kind of runner and follow the same 1h cache-and-
 restart / 6h cap cycle. They are independent workflows — boot each separately.
+
+## Configuring the VM
+
+In **Terminal** mode, expand **VM settings** before booting:
+
+- **Username** — the shell account created inside the container (default `toat`).
+- **Password** — that account's password. Leave blank to have one generated
+  (it's shown in the UI once the runner logs in).
+- **OS** — base image: Ubuntu, Debian, Arch, Alpine, Fedora, or Kali. The
+  runner launches it in Docker and drops you into a shell as your user.
+- **Cycle (minutes)** — length of each run before it caches state and restarts.
+
+Your home directory is mounted from the cached `vm-state`, so files you create
+survive the 1h cache-and-restart cycle.
+
+## Start / Stop
+
+- **Boot VM** clears the stop flag and dispatches the workflow.
+- **Shut down** sets a `VM_STOP` repo variable (via your PAT) and cancels any
+  running/queued runs. The workflow checks `VM_STOP` before booting and before
+  re-dispatching, so the machine stays off until you Boot again.
 5. Each **cycle runs ~1 hour**, then the runner saves its `vm-state` to
    Actions cache and re-dispatches itself. A single job is capped at **6 hours**
    by GitHub; the re-dispatch keeps the machine alive across runs by restoring

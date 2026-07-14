@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   cancelRun,
+  deleteVariable,
   dispatchWorkflow,
-  findVmUrlFromRun,
+  findRunInfo,
   getVariable,
   GitHubAuth,
   loadAuth,
   listRuns,
   saveAuth,
+  setVariable,
+  VmCredentials,
   WorkflowRun,
 } from "./api";
 import { Terminal } from "./components/Terminal";
@@ -22,10 +25,17 @@ export default function App() {
   const [mode, setMode] = useState<Mode>("terminal");
   const [status, setStatus] = useState<Status>("config");
   const [vmUrl, setVmUrl] = useState<string | null>(null);
+  const [creds, setCreds] = useState<VmCredentials | null>(null);
   const [runs, setRuns] = useState<WorkflowRun[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const pollRef = useRef<number | null>(null);
+
+  // VM configuration (sent as workflow_dispatch inputs)
+  const [username, setUsername] = useState("toat");
+  const [password, setPassword] = useState("");
+  const [os, setOs] = useState("ubuntu:latest");
+  const [lifetime, setLifetime] = useState("60");
 
   const workflowFile = mode === "desktop" ? "vm-desktop.yml" : "vm.yml";
 
@@ -35,16 +45,20 @@ export default function App() {
         const recentRuns = await listRuns(a, workflowFile).catch(
           () => [] as WorkflowRun[],
         );
-        // Prefer the optional VM_URL variable; otherwise read the URL the
-        // runner printed into the active run's job logs (no write perms).
+        // Prefer the optional VM_URL variable; otherwise read the URL (and
+        // credentials) the runner printed into the active run's job logs.
         let url = await getVariable(a, "VM_URL").catch(() => null);
+        let infoCreds: VmCredentials | null = null;
         const active = recentRuns.find(
           (r) => r.status === "in_progress" || r.status === "queued",
         );
-        if (!url && active) {
-          url = await findVmUrlFromRun(a, active.id).catch(() => null);
+        if (active) {
+          const info = await findRunInfo(a, active.id).catch(() => null);
+          if (!url && info?.url) url = info.url;
+          infoCreds = info?.creds ?? null;
         }
         setVmUrl(url);
+        setCreds(infoCreds);
         setRuns(recentRuns);
         if (url && active) setStatus("running");
         else if (active) setStatus("booting");
@@ -90,8 +104,18 @@ export default function App() {
     setError(null);
     setMessage("Dispatching ToatVM session...");
     try {
-      await dispatchWorkflow(auth, workflowFile, { lifetime: "60" });
-      setMessage("Session dispatched. The runner is booting (this takes ~1 min).");
+      // Clear any pending stop request so the loop runs.
+      await deleteVariable(auth, "VM_STOP").catch(() => {});
+      const inputs: Record<string, string> = { lifetime };
+      if (mode === "terminal") {
+        inputs.username = username;
+        inputs.password = password;
+        inputs.image = os;
+      }
+      await dispatchWorkflow(auth, workflowFile, inputs);
+      setMessage(
+        "Session dispatched. The runner is booting (OS pull + setup takes a few min).",
+      );
       await refresh(auth);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -101,11 +125,18 @@ export default function App() {
 
   const shutdown = async () => {
     if (!auth) return;
-    const active = runs.find((r) => r.status === "in_progress");
     setMessage("Stopping session...");
     try {
-      if (active) await cancelRun(auth, active.id);
-      setMessage("Session stopped.");
+      // Set the stop flag (read by the workflow before boot / re-dispatch),
+      // then cancel any runs that are already queued or in progress.
+      await setVariable(auth, "VM_STOP", "1");
+      const pending = runs.filter(
+        (r) => r.status === "in_progress" || r.status === "queued",
+      );
+      for (const r of pending) {
+        await cancelRun(auth, r.id).catch(() => {});
+      }
+      setMessage("Session stopped. The VM will not restart until you Boot again.");
       await refresh(auth);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -168,6 +199,48 @@ export default function App() {
                 </button>
               </div>
 
+              {mode === "terminal" && (
+                <details className="vm-settings">
+                  <summary>VM settings</summary>
+                  <label>
+                    Username
+                    <input
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                      placeholder="toat"
+                    />
+                  </label>
+                  <label>
+                    Password
+                    <input
+                      type="password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="random if blank"
+                    />
+                  </label>
+                  <label>
+                    OS
+                    <select value={os} onChange={(e) => setOs(e.target.value)}>
+                      <option value="ubuntu:latest">Ubuntu</option>
+                      <option value="debian:latest">Debian</option>
+                      <option value="archlinux:latest">Arch Linux</option>
+                      <option value="alpine:latest">Alpine</option>
+                      <option value="fedora:latest">Fedora</option>
+                      <option value="kalilinux/kali-rolling">Kali</option>
+                    </select>
+                  </label>
+                  <label>
+                    Cycle (minutes)
+                    <input
+                      value={lifetime}
+                      onChange={(e) => setLifetime(e.target.value)}
+                      placeholder="60"
+                    />
+                  </label>
+                </details>
+              )}
+
               <div className="controls">
                 <button
                   className="btn primary"
@@ -193,6 +266,11 @@ export default function App() {
                   <a href={vmUrl} target="_blank" rel="noreferrer">
                     {vmUrl}
                   </a>
+                  {creds && (
+                    <div className="creds">
+                      login: <code>{creds.user}</code> / <code>{creds.pass}</code>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <p className="hint">

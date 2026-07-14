@@ -110,6 +110,82 @@ export async function cancelRun(auth: GitHubAuth, runId: number): Promise<void> 
   if (!res.ok) throw new Error(`Failed to cancel run (${res.status})`);
 }
 
+// Repo variables are written with the user's own PAT (full repo scope), so
+// this works even though the default GITHUB_TOKEN cannot write them.
+export async function setVariable(
+  auth: GitHubAuth,
+  name: string,
+  value: string,
+): Promise<void> {
+  const res = await fetch(
+    `${GITHUB_API}/repos/${auth.owner}/${auth.repo}/actions/variables/${name}`,
+    {
+      method: "PUT",
+      headers: headers(auth),
+      body: JSON.stringify({ name, value }),
+    },
+  );
+  if (!res.ok && res.status !== 409) {
+    const body = await res.text();
+    throw new Error(`Failed to set variable ${name} (${res.status}): ${body}`);
+  }
+}
+
+export async function deleteVariable(
+  auth: GitHubAuth,
+  name: string,
+): Promise<void> {
+  const res = await fetch(
+    `${GITHUB_API}/repos/${auth.owner}/${auth.repo}/actions/variables/${name}`,
+    { method: "DELETE", headers: headers(auth) },
+  );
+  if (!res.ok && res.status !== 404) {
+    const body = await res.text();
+    throw new Error(`Failed to delete variable ${name} (${res.status}): ${body}`);
+  }
+}
+
+export interface VmCredentials {
+  user: string;
+  pass: string;
+}
+
+const CRED_RE = /ToatVM credentials: user=(\S+) pass=(\S+)/;
+
+// Read the VM_URL and credentials the runner printed into the run's job logs.
+export async function findRunInfo(
+  auth: GitHubAuth,
+  runId: number,
+): Promise<{ url: string | null; creds: VmCredentials | null }> {
+  const jobsRes = await fetch(
+    `${GITHUB_API}/repos/${auth.owner}/${auth.repo}/actions/runs/${runId}/jobs?per_page=20`,
+    { headers: headers(auth) },
+  );
+  if (!jobsRes.ok) return { url: null, creds: null };
+  const jobsData = (await jobsRes.json()) as { jobs?: { logs_url: string }[] };
+  let url: string | null = null;
+  let creds: VmCredentials | null = null;
+  for (const job of jobsData.jobs ?? []) {
+    try {
+      const logRes = await fetch(job.logs_url, { headers: headers(auth) });
+      if (!logRes.ok) continue;
+      const text = await logRes.text();
+      if (!url) {
+        const m = text.match(TUNNEL_RE);
+        if (m) url = m[0];
+      }
+      if (!creds) {
+        const c = text.match(CRED_RE);
+        if (c) creds = { user: c[1], pass: c[2] };
+      }
+      if (url && creds) break;
+    } catch {
+      // try next job
+    }
+  }
+  return { url, creds };
+}
+
 const TUNNEL_RE = /https:\/\/[a-z0-9.-]+\.trycloudflare\.com/;
 
 // The runner prints its tunnel URL to the job log. We read the run's job

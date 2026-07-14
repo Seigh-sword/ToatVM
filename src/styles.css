@@ -273,6 +273,46 @@ body {
   border-radius: 8px;
 }
 
+.vm-settings {
+  margin-bottom: 14px;
+  font-size: 13px;
+}
+.vm-settings summary {
+  cursor: pointer;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.vm-settings label {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.vm-settings input,
+.vm-settings select {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 7px 9px;
+  background: #0a0e18;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.creds {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.creds code {
+  background: #0a0e18;
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: var(--accent);
+}
+
 @media (max-width: 800px) {
   .layout {
     grid-template-columns: 1fr;
