@@ -109,3 +109,32 @@ export async function cancelRun(auth: GitHubAuth, runId: number): Promise<void> 
   );
   if (!res.ok) throw new Error(`Failed to cancel run (${res.status})`);
 }
+
+const TUNNEL_RE = /https:\/\/[a-z0-9.-]+\.trycloudflare\.com/;
+
+// The runner prints its tunnel URL to the job log. We read the run's job
+// logs (plain text) with the user's PAT — no repo-variable write permission
+// required. This is how the frontend discovers the VM URL.
+export async function findVmUrlFromRun(
+  auth: GitHubAuth,
+  runId: number,
+): Promise<string | null> {
+  const jobsRes = await fetch(
+    `${GITHUB_API}/repos/${auth.owner}/${auth.repo}/actions/runs/${runId}/jobs?per_page=20`,
+    { headers: headers(auth) },
+  );
+  if (!jobsRes.ok) return null;
+  const jobsData = (await jobsRes.json()) as { jobs?: { logs_url: string }[] };
+  for (const job of jobsData.jobs ?? []) {
+    try {
+      const logRes = await fetch(job.logs_url, { headers: headers(auth) });
+      if (!logRes.ok) continue;
+      const text = await logRes.text();
+      const match = text.match(TUNNEL_RE);
+      if (match) return match[0];
+    } catch {
+      // try next job
+    }
+  }
+  return null;
+}

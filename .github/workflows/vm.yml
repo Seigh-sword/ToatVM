@@ -96,9 +96,17 @@ jobs:
             echo "::error::Could not establish tunnel"; cat /tmp/cf.log; exit 1
           fi
 
+          # Publish the URL. We do NOT rely on writing a repo variable because
+          # the default GITHUB_TOKEN often lacks variable-write permission
+          # (403 "Resource not accessible by integration"). Instead the URL is
+          # printed to the log, which the ToatVM frontend reads via the run's
+          # job logs (using the user's own PAT). The variable write below is
+          # best-effort only and never fails the job.
           echo "VM_URL=$URL" >> "$GITHUB_OUTPUT"
-          gh variable set VM_URL --body "$URL" --repo "$GITHUB_REPOSITORY"
           echo "ToatVM is live at $URL"
+          echo "ToatVM is live at $URL" >> "$GITHUB_STEP_SUMMARY"
+          gh variable set VM_URL --body "$URL" --repo "$GITHUB_REPOSITORY" \
+            2>/dev/null || echo "note: VM_URL variable not set (needs workflow write perms; logs still work)"
 
           
           LIFETIME="${{ github.event.inputs.lifetime || '60' }}"

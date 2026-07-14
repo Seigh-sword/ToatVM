@@ -32,8 +32,10 @@ working even after the site is hosted on Cloudflare.
    over WebSocket) and [`cloudflared`](https://github.com/cloudflare/cloudflared),
    starts a `tmux` session, and tunnels it to a random `*.trycloudflare.com`
    URL.
-4. The runner writes that URL to a repo variable `VM_URL`. The site polls for
-   it and connects an `xterm.js` terminal straight to the runner.
+4. The runner prints that URL to the job log (and, if the repo grants
+   workflow write permission, also to a `VM_URL` repo variable). The site
+   reads the URL from the run's job logs using *your* PAT — so no special
+   token permission is required for discovery.
 5. Each **cycle runs ~1 hour**, then the runner saves its `vm-state` to
    Actions cache and re-dispatches itself. A single job is capped at **6 hours**
    by GitHub; the re-dispatch keeps the machine alive across runs by restoring

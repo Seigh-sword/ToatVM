@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   cancelRun,
   dispatchWorkflow,
+  findVmUrlFromRun,
   getVariable,
   GitHubAuth,
   loadAuth,
@@ -28,15 +29,20 @@ export default function App() {
   const refresh = useCallback(
     async (a: GitHubAuth) => {
       try {
-        const [url, recentRuns] = await Promise.all([
-          getVariable(a, "VM_URL").catch(() => null),
-          listRuns(a, WORKFLOW_FILE).catch(() => [] as WorkflowRun[]),
-        ]);
-        setVmUrl(url);
-        setRuns(recentRuns);
+        const recentRuns = await listRuns(a, WORKFLOW_FILE).catch(
+          () => [] as WorkflowRun[],
+        );
+        // Prefer the optional VM_URL variable; otherwise read the URL the
+        // runner printed into the active run's job logs (no write perms).
+        let url = await getVariable(a, "VM_URL").catch(() => null);
         const active = recentRuns.find(
           (r) => r.status === "in_progress" || r.status === "queued",
         );
+        if (!url && active) {
+          url = await findVmUrlFromRun(a, active.id).catch(() => null);
+        }
+        setVmUrl(url);
+        setRuns(recentRuns);
         if (url && active) setStatus("running");
         else if (active) setStatus("booting");
         else setStatus("idle");
