@@ -23,19 +23,14 @@ function decodeTarget(enc: string): string | null {
 
 export async function onRequest(context: {
   request: Request;
-  params: { path?: string | string[] };
 }): Promise<Response> {
-  const segs = Array.isArray(context.params.path)
-    ? context.params.path
-    : context.params.path
-      ? [context.params.path]
-      : [];
-
-  const target = decodeTarget(segs[0] ?? "");
+  const reqUrl = new URL(context.request.url);
+  const parts = reqUrl.pathname.split("/").filter(Boolean); // ["proxy", enc, ...rest]
+  const enc = parts[1] ?? "";
+  const target = decodeTarget(enc);
   if (!target) return new Response("bad target", { status: 400 });
 
-  const reqUrl = new URL(context.request.url);
-  const rest = "/" + segs.slice(1).join("/");
+  const rest = "/" + parts.slice(2).join("/");
   const upstream = new URL(target);
   upstream.pathname = rest || "/";
   upstream.search = reqUrl.search;
