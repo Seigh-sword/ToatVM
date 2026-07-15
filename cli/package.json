@@ -1,0 +1,30 @@
+{
+  "name": "toatvm",
+  "version": "0.1.0",
+  "description": "ToatVM CLI — spin up a virtual machine inside GitHub Actions runners, straight from your terminal.",
+  "bin": {
+    "toatvm": "./dist/index.js"
+  },
+  "type": "module",
+  "files": [
+    "dist"
+  ],
+  "keywords": [
+    "toatvm",
+    "vm",
+    "github-actions",
+    "cli"
+  ],
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@clack/prompts": "^0.7.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.6.3"
+  }
+}

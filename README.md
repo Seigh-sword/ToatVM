@@ -86,6 +86,27 @@ talks only to `toatvm.pages.dev/proxy/...`, keeping everything inside the page.
 Use **+ account** in the top bar to save several GitHub accounts (owner/repo/
 PAT). Switch between them with the dropdown — each account manages its own VM
 session via its own repo's `VM_STOP` variable and workflows.
+
+## CLI
+
+There is also a terminal CLI in [`cli/`](./cli) — install from the repo or
+`npm i -g toatvm` (after publishing). It wraps the same GitHub Actions backend
+with a TUI (branding, arrow-key selection, and a live URL you can open
+directly), plus account management:
+
+```bash
+toatvm -new       # create an account (saved at ~/.config/toatvm/config.json)
+toatvm -auth      # save / update a token for an account
+toatvm -init      # interactive wizard: pick account, OS, boot, then control
+toatvm -accounts  # list saved accounts
+toatvm -version   # print version
+toatvm -license   # print the license
+toatvm -help      # usage
+```
+
+`-init` boots the VM, prints the `*.trycloudflare.com` URL (and credentials),
+and offers controls (open in browser / shut down with cache-then-stop / exit).
+Build it with `cd cli && npm install && npm run build`; run `node cli/dist/index.js -help`.
 5. Each **cycle runs ~1 hour**, then the runner saves its `vm-state` to
    Actions cache and re-dispatches itself. A single job is capped at **6 hours**
    by GitHub; the re-dispatch keeps the machine alive across runs by restoring
