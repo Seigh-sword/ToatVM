@@ -13,6 +13,9 @@ that does the actual work.
 > ⚠ **Experimental.** Runners are ephemeral and not private. Do not store
 > anything sensitive. Not for permanent or production use.
 
+📚 **Docs site:** https://toatvm.pages.dev — install, OS choices, sharing,
+license, and terms.
+
 ---
 
 ## Install / Download

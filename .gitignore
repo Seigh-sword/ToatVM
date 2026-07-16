@@ -29,3 +29,13 @@ Thumbs.db
 # Cloudflare
 .wrangler/
 .dev.vars
+
+# Kilo / agent tooling
+.kilo/
+.kilo/**
+.kilocode/
+
+# OS / editor noise
+Thumbs.db
+.DS_Store
+

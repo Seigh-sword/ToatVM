@@ -119,8 +119,18 @@ jobs:
             usermod -aG sudo '$USERNAME' 2>/dev/null || usermod -aG wheel '$USERNAME' 2>/dev/null || true
           " || true
 
+          # Optional share password (set via `toatvm -share <pw>`). When set,
+          # ttyd requires HTTP basic auth so only people with the password can
+          # connect to the (otherwise public) tunnel URL.
+          SHARE_PASS=$(gh variable get VM_PASS 2>/dev/null || true)
+          TTYD_AUTH=""
+          if [ -n "$SHARE_PASS" ]; then
+            TTYD_AUTH="-c toat:$SHARE_PASS"
+            echo "Sharing enabled (password protected)."
+          fi
+
           # Shell over WebSocket, dropped into the user's home.
-          nohup ttyd -p 7681 docker exec -it -w /home/"$USERNAME" toatvm su - "$USERNAME" \
+          nohup ttyd -p 7681 $TTYD_AUTH docker exec -it -w /home/"$USERNAME" toatvm su - "$USERNAME" \
             >/tmp/ttyd.log 2>&1 &
 
           # Public tunnel (random *.trycloudflare.com URL)

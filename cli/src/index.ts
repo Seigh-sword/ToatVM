@@ -17,6 +17,7 @@ import {
 import { BANNER } from "./banner.js";
 import { LICENSE_TEXT } from "./license.js";
 import { copyToClipboard, IS_WINDOWS, openTerminal, openUrl, sleep } from "./util.js";
+import { ttydRun } from "./ttyd.js";
 import { VERSION } from "./version.js";
 
 const OS_OPTIONS = [
@@ -59,8 +60,10 @@ COMMANDS
   -kill            Immediately cancel the active run
   -open            Open the live URL in your browser
   -ssh             Print an ssh command pre-filled with the VM credentials
-  -sync <dir>      One-way upload a local folder into the VM home (via gh api)
-  -exec "<cmd>"    Run a command on the live VM over the tunnel (curl)
+  -sync <dir>      Upload a local folder into the VM ($HOME/sync) over the tunnel
+  -share [pw]      Password-protect the shared tunnel (ttyd basic auth)
+  -unshare         Remove the share password
+  -exec "<cmd>"    Run a command on the live VM over the tunnel
   -version         Print version
   -license         Print the license
   -help            Show this help
@@ -407,9 +410,126 @@ async function cmdSync(dir: string): Promise<void> {
     p.log.error("No live session to sync into.");
     process.exit(1);
   }
-  p.log.info(`Syncing ${dir} → VM home (best-effort via gh).`);
-  p.log.warn("Note: the runner shell isn't an SSH server by default.");
-  p.log.info(`Use the terminal at ${live.url} to pull your files, or -exec.`);
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const { execFileSync } = await import("node:child_process");
+  const target = path.resolve(dir);
+  if (!fs.existsSync(target) || !fs.statSync(target).isDirectory()) {
+    p.log.error(`Not a directory: ${target}`);
+    process.exit(1);
+  }
+  const s = p.spinner();
+  s.start(`Packing ${target} …`);
+  let b64: string;
+  try {
+    const tar = execFileSync("tar", ["-czf", "-", "-C", target, "."], {
+      maxBuffer: 64 * 1024 * 1024,
+    });
+    b64 = tar.toString("base64");
+  } catch (e) {
+    s.stop("Failed to pack files.");
+    p.log.error(String(e instanceof Error ? e.message : e));
+    process.exit(1);
+  }
+  s.message("Uploading to VM over the tunnel…");
+
+  // Build a shell script that decodes stdin and extracts into the home dir.
+  const script =
+    `mkdir -p "$HOME/sync" && base64 -d | tar -xzf - -C "$HOME/sync" && ` +
+    `echo TOATVM_SYNC_DONE_$RANDOM`;
+  // Send base64 in 4KB chunks to avoid oversized frames.
+  const chunkSize = 4096;
+  let uploaded = 0;
+  let lastPct = 0;
+  const marker = "TOATVM_SYNC_DONE_";
+  let result: { output: string; ok: boolean };
+  try {
+    result = await ttydRun(live.url, "", { timeoutMs: 60000 });
+    // prime the shell
+    void result;
+    // Now stream chunks
+    let out = "";
+    const ws = new WebSocket(live.url.replace(/\/$/, "") + "/websocket");
+    await new Promise<void>((res) => (ws.onopen = () => res()));
+    const rf = new TextEncoder().encode(JSON.stringify({ cols: 200, rows: 40 }));
+    const rframe = new Uint8Array(1 + rf.length);
+    rframe[0] = 1;
+    rframe.set(rf, 1);
+    ws.send(rframe);
+    const sendFrame = (txt: string) => {
+      const pld = new TextEncoder().encode(txt);
+      const f = new Uint8Array(1 + pld.length);
+      f[0] = 0;
+      f.set(pld, 1);
+      ws.send(f);
+    };
+    ws.onmessage = (ev) => {
+      if (typeof ev.data !== "string") {
+        out += new TextDecoder().decode(new Uint8Array(ev.data as ArrayBuffer).subarray(1));
+      }
+    };
+    await new Promise((r) => setTimeout(r, 300));
+    sendFrame(script + "\n");
+    await new Promise((r) => setTimeout(r, 300));
+    for (let i = 0; i < b64.length; i += chunkSize) {
+      sendFrame(b64.slice(i, i + chunkSize) + "\n");
+      uploaded = i + chunkSize;
+      const pct = Math.floor((uploaded / b64.length) * 100);
+      if (pct - lastPct >= 10) {
+        lastPct = pct;
+        s.message(`Uploading… ${pct}%`);
+      }
+      if (out.includes(marker)) break;
+    }
+    // close the pipe (end of base64) so tar finishes
+    sendFrame("\n");
+    await new Promise((r) => setTimeout(r, 2000));
+    ws.close();
+    result = { output: out, ok: out.includes(marker) };
+  } catch (e) {
+    s.stop("Upload failed.");
+    p.log.error(String(e instanceof Error ? e.message : e));
+    process.exit(1);
+  }
+  s.stop(result.ok ? "Synced." : "Sync finished (could not confirm).");
+  if (!result.ok) p.log.warn("Upload sent, but the completion marker wasn't seen. Check the VM.");
+  else p.log.success(`Synced ${dir} → VM:$HOME/sync`);
+}
+
+async function cmdShare(pw: string): Promise<void> {
+  const acc = resolveAccount();
+  if (!pw) {
+    const entered = await p.password({ message: "Share password" });
+    if (p.isCancel(entered)) return;
+    pw = String(entered);
+  }
+  await setVariable(acc, "VM_PASS", pw).catch(() => {});
+  // If a session is already running, restart it so ttyd picks up auth.
+  const runs = await listRuns(acc, WORKFLOWS.terminal).catch(() => []);
+  const run = runs.find((r) => r.status === "in_progress" || r.status === "queued");
+  if (run) {
+    await setVariable(acc, "VM_STOP", "1").catch(() => {});
+    p.log.info("Restarting current session to apply the share password…");
+    await waitForStop(acc, WORKFLOWS.terminal);
+    const inputs: Record<string, string> = { lifetime: "60" };
+    await dispatchWorkflow(acc, WORKFLOWS.terminal, inputs).catch(() => {});
+  }
+  p.log.success("Sharing enabled. The tunnel now requires the password.");
+  p.log.info("Share the URL; people connect with user 'toat' and your password.");
+}
+
+async function cmdUnshare(): Promise<void> {
+  const acc = resolveAccount();
+  await deleteVariable(acc, "VM_PASS").catch(() => {});
+  const runs = await listRuns(acc, WORKFLOWS.terminal).catch(() => []);
+  const run = runs.find((r) => r.status === "in_progress" || r.status === "queued");
+  if (run) {
+    await setVariable(acc, "VM_STOP", "1").catch(() => {});
+    p.log.info("Restarting current session without the share password…");
+    await waitForStop(acc, WORKFLOWS.terminal);
+    await dispatchWorkflow(acc, WORKFLOWS.terminal, { lifetime: "60" }).catch(() => {});
+  }
+  p.log.success("Sharing disabled. The tunnel is open again.");
 }
 
 async function cmdExec(command: string): Promise<void> {
@@ -419,11 +539,19 @@ async function cmdExec(command: string): Promise<void> {
     p.log.error("No live session to exec on.");
     process.exit(1);
   }
-  // The ttyd endpoint accepts input frames; for a quick one-shot we hit the
-  // HTTP page (no shell) — real exec needs a WS client. Show the command.
-  p.log.info(`Target: ${live.url}`);
-  p.log.info(`Run this in your own terminal to drive the VM:`);
-  console.log(`  websocat ${live.url}/websocket  # then type: ${command}`);
+  if (!command) {
+    p.log.error("Provide a command: toatvm -exec \"uname -a\"");
+    process.exit(1);
+  }
+  const s = p.spinner();
+  s.start("Running on VM…");
+  const res = await ttydRun(live.url, command + "\n", {
+    expect: "$",
+    timeoutMs: 25000,
+  }).catch(() => null);
+  s.stop("Done.");
+  if (res) console.log(res.output.trim());
+  else p.log.warn("No output captured.");
 }
 
 async function cmdInit(): Promise<void> {
@@ -631,6 +759,12 @@ async function main(): Promise<void> {
       break;
     case "sync":
       await cmdSync(rest[0] ?? ".");
+      break;
+    case "share":
+      await cmdShare(rest[0]);
+      break;
+    case "unshare":
+      await cmdUnshare();
       break;
     case "exec":
       await cmdExec(rest.join(" "));
