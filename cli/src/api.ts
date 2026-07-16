@@ -21,14 +21,21 @@ interface Config {
 
 export interface WorkflowRun {
   id: number;
+  name: string;
   status: string;
   conclusion: string | null;
   html_url: string;
+  created_at: string;
 }
 
 export interface VmCredentials {
   user: string;
   pass: string;
+}
+
+export interface RunLogLine {
+  job: string;
+  text: string;
 }
 
 function defaultConfig(): Config {
@@ -67,12 +74,21 @@ export async function listRuns(
   workflow: string,
 ): Promise<WorkflowRun[]> {
   const res = await fetch(
-    `${GITHUB_API}/repos/${acc.owner}/${acc.repo}/actions/workflows/${workflow}/runs?per_page=5`,
+    `${GITHUB_API}/repos/${acc.owner}/${acc.repo}/actions/workflows/${workflow}/runs?per_page=10`,
     { headers: headers(acc.token) },
   );
   if (!res.ok) throw new Error(`listRuns failed (${res.status})`);
-  const data = (await res.json()) as { workflow_runs: WorkflowRun[] };
-  return data.workflow_runs ?? [];
+  const data = (await res.json()) as {
+    workflow_runs: (Omit<WorkflowRun, "name"> & { name?: string })[];
+  };
+  return (data.workflow_runs ?? []).map((r) => ({
+    id: r.id,
+    name: r.name ?? workflow,
+    status: r.status,
+    conclusion: r.conclusion,
+    html_url: r.html_url,
+    created_at: r.created_at,
+  }));
 }
 
 export async function dispatchWorkflow(
@@ -92,6 +108,15 @@ export async function dispatchWorkflow(
     const body = await res.text();
     throw new Error(`dispatch failed (${res.status}): ${body}`);
   }
+}
+
+export async function cancelRun(acc: Account, runId: number): Promise<void> {
+  const res = await fetch(
+    `${GITHUB_API}/repos/${acc.owner}/${acc.repo}/actions/runs/${runId}/cancel`,
+    { method: "POST", headers: headers(acc.token) },
+  );
+  if (!res.ok && res.status !== 409)
+    throw new Error(`cancel failed (${res.status})`);
 }
 
 export async function setVariable(
@@ -175,3 +200,33 @@ export async function findRunInfo(
   }
   return { url, creds };
 }
+
+// Fetch raw job logs for `toatvm -logs`.
+export async function getRunLogs(
+  acc: Account,
+  runId: number,
+): Promise<RunLogLine[]> {
+  const jobsRes = await fetch(
+    `${GITHUB_API}/repos/${acc.owner}/${acc.repo}/actions/runs/${runId}/jobs?per_page=20`,
+    { headers: headers(acc.token) },
+  );
+  if (!jobsRes.ok) return [];
+  const jobs = (await jobsRes.json()) as { jobs?: { name: string; logs_url: string }[] };
+  const out: RunLogLine[] = [];
+  for (const job of jobs.jobs ?? []) {
+    try {
+      const logRes = await fetch(job.logs_url, { headers: headers(acc.token) });
+      if (!logRes.ok) continue;
+      const text = await logRes.text();
+      out.push({ job: job.name, text });
+    } catch {
+      // skip
+    }
+  }
+  return out;
+}
+
+export const WORKFLOWS = {
+  terminal: "vm.yml",
+  desktop: "vm-desktop.yml",
+} as const;

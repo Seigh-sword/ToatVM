@@ -1,172 +1,178 @@
 # 🐸 ToatVM
 
-> A website that runs a **virtual machine inside a GitHub Actions runner**.
-> Experimental, ephemeral, not for permanent or production use.
+**A virtual machine that runs inside GitHub Actions runners — driven entirely
+from your terminal.**
 
-ToatVM (the "Toat") is a joke-but-real experiment: instead of paying for a VPS,
-you borrow a GitHub-hosted runner (standard runners ship with ~7 GB RAM, and the
-larger runners go up to 16 GB) and expose its shell to your browser through a
-tunnel. The frontend is a static **React + TypeScript (Vite)** app deployed to
-**Cloudflare Pages** (`toatvm.pages.dev`), so the GitHub Actions backend keeps
-working even after the site is hosted on Cloudflare.
+ToatVM uses GitHub Actions as compute: it boots a Docker container of the OS
+you pick on a runner, exposes a shell (or full XFCE desktop) over a tunnel, and
+hands you a `*.trycloudflare.com` URL you can open in any browser or terminal.
+Each session lives up to ~6h and auto-restarts every cycle from a cached
+state. This repo is the **CLI** (`toatvm`) plus the **GitHub Actions backend**
+that does the actual work.
 
+> ⚠ **Experimental.** Runners are ephemeral and not private. Do not store
+> anything sensitive. Not for permanent or production use.
+
+---
+
+## Install / Download
+
+### npm (recommended)
+```bash
+npm i -g toatvm
+toatvm -help
 ```
- Browser ──► Cloudflare Pages (static SPA) ──► api.github.com (dispatch/read)
-                                              │
-                                              ▼
-                                   GitHub Actions runner
-                                   (tmux + ttyd + cloudflared)
-                                              │
-                                              ▼
-                              *.trycloudflare.com ← xterm.js WebSocket
+Requires [Node.js](https://nodejs.org) 18+.
+
+### npx (no install)
+```bash
+npx toatvm -init
 ```
+
+### From source
+```bash
+git clone https://github.com/Seigh-sword/ToatVM.git
+cd ToatVM/cli
+npm install
+npm run build
+node dist/index.js -help
+```
+
+### Windows 10 / 11
+Works natively. After booting, use `toatvm -open` (opens the URL in your
+default browser) or `toatvm -ssh` (prints an `ssh` command to paste into
+**Windows Terminal** / PowerShell). The runner shell isn't an SSH server by
+default, so `-ssh` gives you the command to adapt; the browser terminal works
+out of the box.
+
+---
+
+## Quick start
+
+```bash
+toatvm -new      # create an account (owner / repo / PAT)
+toatvm -init     # pick OS, boot, get the live URL + controls
+```
+
+`-init` is the interactive wizard: choose account → Terminal or Desktop → OS
+(username/password/cycle) → confirm → it boots and prints the live URL, then
+offers **Open in browser**, **Copy URL**, **ssh command**, and **Shut down
+(cache, then stop)**.
+
+---
+
+## Commands
+
+| Command | What it does |
+| --- | --- |
+| `toatvm -init` | Interactive wizard: account, OS, boot, then live controls |
+| `toatvm -new` | Create a saved account (name / owner / repo / token) |
+| `toatvm -auth` | Save or update a token for an account |
+| `toatvm -accounts` | List saved accounts |
+| `toatvm -select <name>` | Set the active account |
+| `toatvm -remove <name>` | Delete a saved account |
+| `toatvm -list` | List recent workflow runs |
+| `toatvm -status` | Show the live URL + credentials (if running) |
+| `toatvm -url [--copy]` | Print (or copy) the live tunnel URL |
+| `toatvm -logs` | Dump the active run's job logs |
+| `toatvm -boot [flags]` | Boot non-interactively (see flags below) |
+| `toatvm -stop` | Gracefully stop: cache state, then close |
+| `toatvm -kill` | Immediately cancel the active run |
+| `toatvm -open` | Open the live URL in your browser |
+| `toatvm -ssh` | Print an ssh command pre-filled with VM creds |
+| `toatvm -sync <dir>` | Info/hint for pushing local files into the VM |
+| `toatvm -exec "<cmd>"` | Show how to run a command on the live VM |
+| `toatvm -version` | Print version |
+| `toatvm -license` | Print the MIT license |
+| `toatvm -help` | Usage |
+
+### `-boot` flags (and `-init` equivalents)
+```
+--account <name>   use this account
+--mode <t|d>       terminal or desktop
+--os <image>       ubuntu:latest | debian:latest | archlinux:latest |
+                    alpine:latest | fedora:latest | kalilinux/kali-rolling
+--user <name>      shell username (default toat)
+--pass <pw>        shell password (random if blank)
+--cycle <min>      minutes per cycle (default 60)
+--name <label>     friendly session label
+```
+Example:
+```bash
+toatvm -boot --mode t --os archlinux:latest --user neo --cycle 120
+```
+
+---
 
 ## How it works
 
-1. You open the site and paste a GitHub **Personal Access Token** (stored only
-   in your browser's `localStorage`). The token needs `repo` and `workflow`
-   scopes.
-2. Click **Boot VM**. The app calls the GitHub REST API to trigger the
-   `vm.yml` workflow (`workflow_dispatch`).
-3. The runner installs [`ttyd`](https://github.com/tsl0922/ttyd) (a terminal
-   over WebSocket) and [`cloudflared`](https://github.com/cloudflare/cloudflared),
-   starts a `tmux` session, and tunnels it to a random `*.trycloudflare.com`
-   URL.
-4. The runner prints that URL to the job log (and, if the repo grants
-   workflow write permission, also to a `VM_URL` repo variable). The site
-   reads the URL from the run's job logs using *your* PAT — so no special
-   token permission is required for discovery.
-
-## Terminal vs Desktop
-
-The site has two modes (toggle in the panel):
-
-- **Terminal** — boots `vm.yml`: a `tmux` + `ttyd` shell you drive from an
-  `xterm.js` terminal in the browser.
-- **Desktop** — boots `vm-desktop.yml`: a full XFCE desktop via TigerVNC +
-  noVNC, shown in the browser through an embedded noVNC client
-  (`/vnc.html?path=websockify`). You get a real GUI (browser, editor, etc.).
-
-Both modes run on the same kind of runner and follow the same 1h cache-and-
-restart / 6h cap cycle. They are independent workflows — boot each separately.
-
-## Configuring the VM
-
-In **Terminal** mode, expand **VM settings** before booting:
-
-- **Username** — the shell account created inside the container (default `toat`).
-- **Password** — that account's password. Leave blank to have one generated
-  (it's shown in the UI once the runner logs in).
-- **OS** — base image: Ubuntu, Debian, Arch, Alpine, Fedora, or Kali. The
-  runner launches it in Docker and drops you into a shell as your user.
-- **Cycle (minutes)** — length of each run before it caches state and restarts.
-
-Your home directory is mounted from the cached `vm-state`, so files you create
-survive the 1h cache-and-restart cycle.
-
-## Start / Stop
-
-- **Boot VM** clears the `VM_STOP` flag and dispatches the workflow.
-- **Shut down** sets `VM_STOP` (via your PAT). The runner's boot loop wakes up
-  every 10s, detects the flag, **saves the cache, then exits** — so shutdown is
-  graceful, not a hard kill. The re-dispatch step then sees the flag and stops
-  the cycle. The VM stays off until you Boot again.
-
-## In-page access (no raw tunnel URL)
-
-The runner still uses a `cloudflared` tunnel, but the random
-`*.trycloudflare.com` URL is never shown or used directly. A Cloudflare Pages
-Function (`functions/proxy/[...path].ts`) reverse-proxies both the terminal
-WebSocket and noVNC to the runner. The tunnel URL is base64url-encoded into the
-path and the proxy only forwards to `*.trycloudflare.com` hosts. The browser
-talks only to `toatvm.pages.dev/proxy/...`, keeping everything inside the page.
-
-## Multiple accounts
-
-Use **+ account** in the top bar to save several GitHub accounts (owner/repo/
-PAT). Switch between them with the dropdown — each account manages its own VM
-session via its own repo's `VM_STOP` variable and workflows.
-
-## CLI
-
-There is also a terminal CLI in [`cli/`](./cli) — install from the repo or
-`npm i -g toatvm` (after publishing). It wraps the same GitHub Actions backend
-with a TUI (branding, arrow-key selection, and a live URL you can open
-directly), plus account management:
-
-```bash
-toatvm -new       # create an account (saved at ~/.config/toatvm/config.json)
-toatvm -auth      # save / update a token for an account
-toatvm -init      # interactive wizard: pick account, OS, boot, then control
-toatvm -accounts  # list saved accounts
-toatvm -version   # print version
-toatvm -license   # print the license
-toatvm -help      # usage
+```
+ toatvm -init
+      │  workflow_dispatch (GitHub REST API, your PAT)
+      ▼
+ GitHub Actions runner (ubuntu-latest, Docker)
+      ├─ docker run <OS> + create user + mount cached home
+      ├─ ttyd  → shell over WebSocket   (Terminal mode)
+      ├─ XFCE + TigerVNC + noVNC        (Desktop mode)
+      └─ cloudflared tunnel → *.trycloudflare.com
+      ▼
+ you open the URL in a browser or terminal
 ```
 
-`-init` boots the VM, prints the `*.trycloudflare.com` URL (and credentials),
-and offers controls (open in browser / shut down with cache-then-stop / exit).
-Build it with `cd cli && npm install && npm run build`; run `node cli/dist/index.js -help`.
-5. Each **cycle runs ~1 hour**, then the runner saves its `vm-state` to
-   Actions cache and re-dispatches itself. A single job is capped at **6 hours**
-   by GitHub; the re-dispatch keeps the machine alive across runs by restoring
-   the cached state.
+The URL and credentials are read from the run's job logs (so no special token
+permission is required). `VM_STOP` is a repo variable the CLI sets to halt the
+loop; the runner polls it, caches state, and exits — that's why `-stop` is
+graceful instead of a hard kill.
 
-## ⚠ Disclaimers
+---
 
-- **Ephemeral & public.** The tunnel URL is reachable by anyone who finds it.
-  No authentication is applied beyond the random URL. Do **not** run anything
-  sensitive.
-- **Not permanent.** Runners and caches are reclaimed; state can vanish.
-- **Abuse the platform and you'll get banned.** Keep this experimental and
-  low-traffic.
-- The `VM_URL` variable and `vm-state` cache are tied to the repo that owns the
-  workflow.
+## Features
 
-## Local development
+1. **Interactive TUI wizard** (`-init`) with ToatVM ASCII branding.
+2. **Multiple accounts** with a switchable active profile (`-select`).
+3. **OS choice**: Ubuntu, Debian, Arch, Alpine, Fedora, Kali (Docker).
+4. **Terminal & Desktop** modes (shell or full XFCE GUI over noVNC).
+5. **Graceful stop** — caches state then closes (`-stop`).
+6. **Live URL + credentials** printed and copyable (`-url --copy`).
+7. **Run logs streaming** (`-logs`).
+8. **Non-interactive boot** with full flag set (`-boot`).
+9. **Session status** at a glance (`-status`).
+10. **Browser open** (`-open`) and **ssh command** (`-ssh`).
+11. **Account management**: `-new`, `-auth`, `-accounts`, `-remove`.
+12. **Per-session labels**.
+13. **Cached home directory** persists files across the 1h cycle.
+14. **Windows-friendly** hints (`-open` / `-ssh` for Windows Terminal).
+15. **Provenance publishing** to npm on tagged releases.
+16. **`--copy` clipboard** support (macOS / Linux / Windows).
+17. **`--account` override** for any command.
+18. **Config stored locally** at `~/.config/toatvm/config.json`.
+19. **MIT licensed**, single-binary CLI, zero config files in the repo.
+20. **Backend reuse** — same workflows power both modes and any number of accounts.
+21. **Help / version / license** subcommands.
+22. **`vm-state` cache + auto re-dispatch** loop (6h cap).
 
-```bash
-npm install
-npm run dev        # http://localhost:5173
-npm run build      # type-check + bundle to dist/
-npm run preview
-```
+---
 
-## Deploy to Cloudflare Pages
+## Backend (this repo)
 
-The app is 100% static, so Pages just builds and serves `dist/`.
+| File | Purpose |
+| --- | --- |
+| `.github/workflows/vm.yml` | Terminal VM: Docker OS + user + ttyd + tunnel |
+| `.github/workflows/vm-desktop.yml` | Desktop VM: XFCE + TigerVNC + noVNC + tunnel |
+| `.github/workflows/ci.yml` | Build check (proves `cli` builds) |
+| `.github/workflows/publish.yml` | Publishes `cli/` to npm on `v*` tags |
+| `cli/` | The `toatvm` CLI (TypeScript, `@clack/prompts`) |
 
-**Via the dashboard (recommended):**
-- Build command: `npm run build`
-- Build output directory: `dist`
-- No environment variables required.
+To self-host the backend, fork the repo, enable Actions, add a PAT with
+`repo` + `workflow`, and point `toatvm -new` at your fork.
 
-**Via CLI:**
-```bash
-npm install
-npx wrangler pages deploy dist
-# or: npm run deploy
-```
+---
 
-`wrangler.toml` and `public/_headers` are included for convenience. Because the
-site talks to `api.github.com` directly from the browser, there is no server or
-Pages Function needed, and the GitHub Actions backend is unaffected by where the
-frontend is hosted.
+## Limitations & warnings
 
-## Project layout
-
-```
-.github/workflows/vm.yml        The "VM": terminal runner (tmux + ttyd + cloudflared)
-.github/workflows/vm-desktop.yml  The "Desktop": XFCE + TigerVNC + noVNC + cloudflared
-.github/workflows/ci.yml         Build check (proves `npm run build` passes)
-src/api.ts                 GitHub REST client (dispatch / read VM_URL / runs)
-src/components/Terminal.tsx  xterm.js client for the ttyd WebSocket
-src/App.tsx                Session panel + connection orchestration
-src/styles.css             Dark theme
-vite.config.ts             Vite config (base "./" for static hosting)
-wrangler.toml             Cloudflare Pages deploy config
-```
-
-## License
-
-MIT [LICENSE](./LICENSE).
+- Runners are public-ish; the tunnel URL is the only protection. Don't expose
+  secrets. The shell account password is printed in the (public, for public
+  repos) Actions logs.
+- ~6h hard cap per run; ~1h cycles with cache-and-restart.
+- Not a replacement for a real VM/cloud host.
+- The desktop GUI is reachable by anyone with the URL.

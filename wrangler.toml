@@ -1,6 +1,0 @@
-name = "toatvm"
-pages_build_output_dir = "dist"
-compatibility_date = "2024-11-01"
-
-# ToatVM is a fully static SPA (no Pages Functions required). The frontend
-# talks to api.github.com directly from the browser, so no routes, vars.
