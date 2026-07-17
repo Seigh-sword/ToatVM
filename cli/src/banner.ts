@@ -8,4 +8,4 @@ export const BANNER = `
    the VM that lives inside GitHub Actions runners
 `;
 
-export const BRAND = "🐸 ToatVM";
+export const BRAND = "ToatVM";

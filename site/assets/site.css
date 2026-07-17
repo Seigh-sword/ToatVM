@@ -42,7 +42,6 @@ code { padding: 1px 6px; border-radius: 5px; }
   z-index: 10;
 }
 .nav .brand { font-weight: 700; font-size: 17px; }
-.nav .brand .frog { font-size: 20px; }
 .nav .links { margin-left: auto; display: flex; gap: 16px; font-size: 14px; }
 .hero {
   text-align: center;

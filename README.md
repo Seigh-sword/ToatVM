@@ -1,4 +1,4 @@
-# 🐸 ToatVM
+# ToatVM
 
 **A virtual machine that runs inside GitHub Actions runners — driven entirely
 from your terminal.**
@@ -10,10 +10,10 @@ Each session lives up to ~6h and auto-restarts every cycle from a cached
 state. This repo is the **CLI** (`toatvm`) plus the **GitHub Actions backend**
 that does the actual work.
 
-> ⚠ **Experimental.** Runners are ephemeral and not private. Do not store
+> **Experimental.** Runners are ephemeral and not private. Do not store
 > anything sensitive. Not for permanent or production use.
 
-📚 **Docs site:** https://toatvm.pages.dev — install, OS choices, sharing,
+**Docs site:** https://toatvm.pages.dev — install, OS choices, sharing,
 license, and terms.
 
 ---

@@ -35,7 +35,7 @@ function brand(): void {
 
 function help(): void {
   console.log(`${BANNER}
-${"🐸 ToatVM CLI".padEnd(0)} v${VERSION}
+${"ToatVM CLI".padEnd(0)} v${VERSION}
 
 A virtual machine that runs inside GitHub Actions runners.
 Experimental — not for permanent or production use.
@@ -115,7 +115,12 @@ function activeRun(runs: { status: string }[]): { status: string } | undefined {
 
 async function findLive(
   acc: Account,
-): Promise<{ url: string; creds: { user: string; pass: string } | null; runId: number } | null> {
+): Promise<{
+  url: string;
+  creds: { user: string; pass: string } | null;
+  sharePass: string | null;
+  runId: number;
+} | null> {
   const runs = await listRuns(acc, WORKFLOWS.terminal).catch(() => []);
   const term = runs.find((r) => r.status === "in_progress" || r.status === "queued");
   const wf = term ? WORKFLOWS.terminal : WORKFLOWS.desktop;
@@ -124,7 +129,8 @@ async function findLive(
   if (!run) return null;
   const info = await findRunInfo(acc, run.id).catch(() => null);
   if (!info?.url) return null;
-  return { url: info.url, creds: info.creds, runId: run.id };
+  const sharePass = await getVariable(acc, "VM_PASS").catch(() => null);
+  return { url: info.url, creds: info.creds, sharePass, runId: run.id };
 }
 
 async function waitForUrl(
@@ -157,7 +163,7 @@ async function waitForStop(acc: Account, workflow: string): Promise<void> {
 
 async function cmdNew(): Promise<void> {
   brand();
-  p.intro("🐸 ToatVM — new account");
+  p.intro("ToatVM - new account");
   const name = await p.text({ message: "Account name" });
   if (p.isCancel(name)) return;
   const owner = await p.text({ message: "GitHub owner" });
@@ -188,7 +194,7 @@ async function cmdAuth(): Promise<void> {
     p.log.error("No accounts yet — run 'toatvm -new' first.");
     return;
   }
-  p.intro("🐸 ToatVM — auth");
+  p.intro("ToatVM - auth");
   const choice = await p.select({
     message: "Which account?",
     options: cfg.accounts.map((a) => ({ value: a.id, label: a.name })),
@@ -251,7 +257,7 @@ async function cmdList(): Promise<void> {
   console.log(`\nRecent runs for ${acc.owner}/${acc.repo}:`);
   for (const r of all) {
     const state =
-      r.status === "in_progress" ? "● running" : r.status === "queued" ? "○ queued" : `· ${r.conclusion ?? r.status}`;
+      r.status === "in_progress" ? "running" : r.status === "queued" ? "queued" : `${r.conclusion ?? r.status}`;
     console.log(`  #${r.id}  ${state}  ${r.name}`);
   }
 }
@@ -264,7 +270,7 @@ async function cmdStatus(): Promise<void> {
     console.log("No live session right now.");
     return;
   }
-  console.log(`\n🌐 Live URL: ${live.url}`);
+  console.log(`\nLive URL: ${live.url}`);
   if (live.creds) console.log(`login:      ${live.creds.user} / ${live.creds.pass}`);
   console.log(`run:        ${acc.owner}/${acc.repo} #${live.runId}`);
 }
@@ -449,7 +455,14 @@ async function cmdSync(dir: string): Promise<void> {
     void result;
     // Now stream chunks
     let out = "";
-    const ws = new WebSocket(live.url.replace(/\/$/, "") + "/websocket");
+    let wsUrl = live.url.replace(/\/$/, "") + "/websocket";
+    if (live.sharePass) {
+      const u = new URL(wsUrl);
+      u.username = "toat";
+      u.password = live.sharePass;
+      wsUrl = u.toString();
+    }
+    const ws = new WebSocket(wsUrl);
     await new Promise<void>((res) => (ws.onopen = () => res()));
     const rf = new TextEncoder().encode(JSON.stringify({ cols: 200, rows: 40 }));
     const rframe = new Uint8Array(1 + rf.length);
@@ -548,6 +561,7 @@ async function cmdExec(command: string): Promise<void> {
   const res = await ttydRun(live.url, command + "\n", {
     expect: "$",
     timeoutMs: 25000,
+    password: live.sharePass,
   }).catch(() => null);
   s.stop("Done.");
   if (res) console.log(res.output.trim());
@@ -562,7 +576,7 @@ async function cmdInit(): Promise<void> {
     return;
   }
 
-  p.intro("🐸 ToatVM — launch");
+  p.intro(" ToatVM * launch");
 
   let acc: Account | undefined =
     cfg.accounts.find((a) => a.id === cfg.activeId) ?? cfg.accounts[0];
@@ -637,7 +651,7 @@ async function cmdInit(): Promise<void> {
   const credLine = found.creds
     ? `\nlogin:    ${found.creds.user} / ${found.creds.pass}`
     : "";
-  p.note(`url:      ${found.url}${credLine}`, "🌐 Live URL");
+  p.note(`url:      ${found.url}${credLine}`, "Live URL");
   console.log(`\nOpen it directly in your browser:\n  ${found.url}\n`);
 
   for (;;) {
@@ -674,7 +688,7 @@ async function cmdInit(): Promise<void> {
     }
   }
 
-  p.outro("👋 ToatVM session ended. 'toatvm -init' any time to launch again.");
+  p.outro("ToatVM session ended. 'toatvm -init' any time to launch again.");
 }
 
 // ---- arg parsing -----------------------------------------------------------
@@ -780,7 +794,7 @@ async function main(): Promise<void> {
 }
 
 if (IS_WINDOWS) {
-  console.log("🪟 Windows detected — use 'toatvm -open' or 'toatvm -ssh' and paste into your terminal/Windows Terminal.");
+  console.log("Windows detected — use 'toatvm -open' or 'toatvm -ssh' and paste into your terminal/Windows Terminal.");
 }
 
 main().catch((err) => {
