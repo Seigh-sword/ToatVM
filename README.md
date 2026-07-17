@@ -25,6 +25,14 @@ license, and terms.
 npm i -g toatvm
 toatvm -help
 ```
+
+### ToatVM Lite
+```bash
+npm i -g toatvm-lite
+toatvm-lite -help
+```
+Minimal web-focused CLI. Same config, no banner, no templates.
+
 Requires [Node.js](https://nodejs.org) 18+.
 
 ### npx (no install)
@@ -191,8 +199,9 @@ graceful instead of a hard kill.
 | `.github/workflows/vm.yml` | Terminal VM: Docker OS + user + ttyd + tunnel |
 | `.github/workflows/vm-desktop.yml` | Desktop VM: XFCE + TigerVNC + noVNC + tunnel |
 | `.github/workflows/ci.yml` | Build check (proves `cli` builds) |
-| `.github/workflows/publish.yml` | Publishes `cli/` to npm on `v*` tags |
+| `.github/workflows/publish.yml` | Publishes `cli/` and `cli-lite/` to npm on `v*` tags |
 | `cli/` | The `toatvm` CLI (TypeScript, `@clack/prompts`) |
+| `cli-lite/` | ToatVM Lite — minimal web-focused CLI |
 
 To self-host the backend, fork the repo, enable Actions, add a PAT with
 `repo` + `workflow`, and point `toatvm -new` at your fork.
@@ -232,6 +241,22 @@ Run through the core flows:
 9. `toatvm -list` → confirm run history appears
 10. `toatvm -template save test` → confirm template creation
 11. `toatvm -health` → confirm health output
+
+### Testing ToatVM Lite
+
+```bash
+npm i -g toatvm-lite
+toatvm-lite -version
+toatvm-lite -help
+```
+
+Quick smoke test:
+1. `toatvm-lite -new` → save an account
+2. `toatvm-lite -init` → boot and get URL
+3. `toatvm-lite -url --copy` → confirm clipboard gets URL
+4. `toatvm-lite -open` → confirm browser opens
+5. `toatvm-lite -status` → confirm live session details
+6. `toatvm-lite -stop` → confirm graceful shutdown
 
 If anything fails, check the Actions tab in your repo for runner logs.
 

@@ -15,19 +15,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          registry-url: https://registry.npmjs.org
-          cache: npm
-          cache-dependency-path: cli/package-lock.json
-      - name: Install & build CLI
+      - name: Install & build ToatVM CLI
         working-directory: cli
         run: |
           npm ci
           npm run build
-      - name: Publish
+      - name: Publish ToatVM CLI
         working-directory: cli
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Install & build ToatVM Lite
+        working-directory: cli-lite
+        run: |
+          npm ci
+          npm run build
+      - name: Publish ToatVM Lite
+        working-directory: cli-lite
         run: npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

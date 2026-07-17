@@ -660,11 +660,11 @@ function buildInputs(opts: {
   const inputs: Record<string, string> = {
     lifetime: opts.cycle,
     env: JSON.stringify(opts.env),
-    preRun: opts.preRun,
-    postRun: opts.postRun,
-    cpuLimit: opts.cpu,
-    memLimit: opts.mem,
-    diskSize: opts.disk,
+    "pre-run": opts.preRun,
+    "post-run": opts.postRun,
+    "cpu-limit": opts.cpu,
+    "mem-limit": opts.mem,
+    "disk-size": opts.disk,
   };
   if (opts.mode === "terminal") {
     inputs.image = opts.os;

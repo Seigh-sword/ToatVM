@@ -12,6 +12,7 @@ name: ToatVM Desktop
 #   - Resource limits and disk size
 #   - Session templates via workflow inputs
 #   - VNC geometry options
+#   - Port forwards
 
 on:
   workflow_dispatch:
@@ -48,6 +49,14 @@ on:
         description: "Memory limit for the container (GB)"
         required: false
         default: "2"
+      ports:
+        description: "Port forwards (host:container,...)"
+        required: false
+        default: ""
+      label:
+        description: "Session label"
+        required: false
+        default: ""
   repository_dispatch:
     types: [toatvm-desktop-boot]
 
@@ -96,6 +105,14 @@ jobs:
           echo "cpu=$(echo '${{ github.event.inputs.cpu-limit || '1' }}' | tr -d ' ')" >> "$GITHUB_OUTPUT"
           echo "mem=$(echo '${{ github.event.inputs.mem-limit || '2' }}' | tr -d ' ')" >> "$GITHUB_OUTPUT"
           echo "disk=$(echo '${{ github.event.inputs.disk-size || '10' }}' | tr -d ' ')" >> "$GITHUB_OUTPUT"
+          echo "pre=$(cat <<'EOF'
+          ${{ github.event.inputs.pre-run || '' }}
+          EOF
+          )" >> "$GITHUB_OUTPUT"
+          echo "post=$(cat <<'EOF'
+          ${{ github.event.inputs.post-run || '' }}
+          EOF
+          )" >> "$GITHUB_OUTPUT"
 
       - name: Boot desktop session
         id: boot
@@ -112,6 +129,16 @@ jobs:
           CPU_LIMIT="${{ steps.inputs.outputs.cpu }}"
           MEM_LIMIT="${{ steps.inputs.outputs.mem }}"
           DISK_SIZE="${{ steps.inputs.outputs.disk }}"
+          PRE_RUN="${{ steps.inputs.outputs.pre }}"
+          POST_RUN="${{ steps.inputs.outputs.post }}"
+
+          PORTS_ARGS=""
+          if [ -n "${{ github.event.inputs.ports }}" ]; then
+            IFS=',' read -ra PORTS <<< "${{ github.event.inputs.ports }}"
+            for p in "${PORTS[@]}"; do
+              PORTS_ARGS="$PORTS_ARGS -p $p"
+            done
+          fi
 
           mkdir -p "$HOME/.vnc"
           printf 'toatvm\n' | vncpasswd -f > "$HOME/.vnc/passwd" 2>/dev/null || true
@@ -124,6 +151,41 @@ jobs:
           exec startxfce4
           EOF
           chmod +x "$HOME/.vnc/xstartup"
+
+          docker rm -f toatvm 2>/dev/null || true
+          docker run -d --name toatvm \
+            --cpus="${CPU_LIMIT}" \
+            --memory="${MEM_LIMIT}g" \
+            --storage-opt size="${DISK_SIZE}G" \
+            $PORTS_ARGS \
+            -v "$PWD/vm-state":/home/toatvm \
+            ubuntu:latest sleep infinity
+
+          docker exec toatvm sh -c "
+            useradd -M -s /bin/bash toatvm 2>/dev/null || adduser -D toatvm 2>/dev/null || true
+            echo 'toatvm:toatvm' | chpasswd 2>/dev/null || echo 'toatvm' | passwd --stdin toatvm 2>/dev/null || true
+            chown -R toatvm /home/toatvm 2>/dev/null || true
+            usermod -aG sudo toatvm 2>/dev/null || usermod -aG wheel toatvm 2>/dev/null || true
+            mkdir -p /etc/toatvm
+            echo \"$PRE_RUN\" > /etc/toatvm/pre-run.sh
+            chmod +x /etc/toatvm/pre-run.sh
+            echo \"$POST_RUN\" > /etc/toatvm/post-run.sh
+            chmod +x /etc/toatvm/post-run.sh
+          " || true
+
+          ENV_JSON="${{ github.event.inputs.env || '{}' }}"
+          ENV_LINES=$(echo "$ENV_JSON" | jq -r 'to_entries[]? | "\(.key)=\(.value)"' 2>/dev/null || true)
+
+          if [ -n "$ENV_LINES" ]; then
+            while IFS='=' read -r key value; do
+              [ -z "$key" ] && continue
+              docker exec toatvm sh -c "echo '$key=$value' >> /etc/environment" || true
+            done <<< "$ENV_LINES"
+          fi
+
+          if [ -n "$PRE_RUN" ]; then
+            docker exec toatvm su - toatvm -c "/etc/toatvm/pre-run.sh" 2>/dev/null || true
+          fi
 
           vncserver :1 -geometry "$GEOMETRY" -depth 24 -SecurityTypes None \
             || vncserver :1 -geometry "$GEOMETRY" -depth 24
@@ -151,14 +213,9 @@ jobs:
           gh variable set VM_URL --body "$URL" --repo "$GITHUB_REPOSITORY" \
             2>/dev/null || echo "note: VM_URL variable not set (needs workflow write perms; logs still work)"
 
-          ENV_JSON="${{ github.event.inputs.env || '{}' }}"
-          ENV_LINES=$(echo "$ENV_JSON" | jq -r 'to_entries[]? | "\(.key)=\(.value)"' 2>/dev/null || true)
-
-          if [ -n "$ENV_LINES" ]; then
-            while IFS='=' read -r key value; do
-              [ -z "$key" ] && continue
-              docker exec toatvm sh -c "echo '$key=$value' >> /etc/environment" || true
-            done <<< "$ENV_LINES"
+          if [ -n "${{ github.event.inputs.label }}" ]; then
+            gh variable set VM_LABEL --body "${{ github.event.inputs.label }}" --repo "$GITHUB_REPOSITORY" \
+              2>/dev/null || true
           fi
 
           LIFETIME="${{ github.event.inputs.lifetime || '60' }}"
@@ -174,6 +231,17 @@ jobs:
             sleep 10
             ELAPSED=$(( ELAPSED + 10 ))
           done
+
+      - name: Run post-run script
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          CONTAINER=$(docker ps -q --filter name=toatvm --filter status=running 2>/dev/null || true)
+          if [ -n "$CONTAINER" ]; then
+            docker exec "$CONTAINER" su - toatvm -c "/etc/toatvm/post-run.sh" 2>/dev/null || true
+          fi
 
       - name: Save VM state
         if: always()
@@ -196,5 +264,7 @@ jobs:
             -f post-run="${{ github.event.inputs.post-run || '' }}" \
             -f disk-size="${{ github.event.inputs.disk-size || '10' }}" \
             -f cpu-limit="${{ github.event.inputs.cpu-limit || '1' }}" \
-            -f mem-limit="${{ github.event.inputs.mem-limit || '2' }}"
+            -f mem-limit="${{ github.event.inputs.mem-limit || '2' }}" \
+            -f ports="${{ github.event.inputs.ports || '' }}" \
+            -f label="${{ github.event.inputs.label || '' }}"
           echo "Re-dispatched ToatVM Desktop."

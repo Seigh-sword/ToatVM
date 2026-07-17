@@ -8,9 +8,9 @@ name: ToatVM Session
 # New in 0.3.0:
 #   - Environment variables passed into the container
 #   - Pre-run / post-run scripts
-#   - Resource hints and health checks
-#   - Disk size options
+#   - Resource limits and disk size
 #   - Session templates via workflow inputs
+#   - Port forwards
 
 on:
   workflow_dispatch:
@@ -63,6 +63,14 @@ on:
         description: "Memory limit for the container (GB)"
         required: false
         default: "2"
+      ports:
+        description: "Port forwards (host:container,...)"
+        required: false
+        default: ""
+      label:
+        description: "Session label"
+        required: false
+        default: ""
   repository_dispatch:
     types: [toatvm-boot]
 
@@ -148,12 +156,21 @@ jobs:
           mkdir -p vm-state
           [ -f vm-state/.booted ] || echo "first boot $(date -u)" > vm-state/.booted
 
+          PORTS_ARGS=""
+          if [ -n "${{ github.event.inputs.ports }}" ]; then
+            IFS=',' read -ra PORTS <<< "${{ github.event.inputs.ports }}"
+            for p in "${PORTS[@]}"; do
+              PORTS_ARGS="$PORTS_ARGS -p $p"
+            done
+          fi
+
           docker rm -f toatvm 2>/dev/null || true
 
           docker run -d --name toatvm \
             --cpus="${CPU_LIMIT}" \
             --memory="${MEM_LIMIT}g" \
             --storage-opt size="${DISK_SIZE}G" \
+            $PORTS_ARGS \
             -v "$PWD/vm-state":/home/"$USERNAME" \
             "$IMAGE" sleep infinity
 
@@ -179,6 +196,10 @@ jobs:
               [ -z "$key" ] && continue
               docker exec toatvm sh -c "echo '$key=$value' >> /etc/environment" || true
             done <<< "$ENV_LINES"
+          fi
+
+          if [ -n "$PRE_RUN" ]; then
+            docker exec toatvm su - "$USERNAME" -c "/etc/toatvm/pre-run.sh" 2>/dev/null || true
           fi
 
           SHARE_PASS=$(gh variable get VM_PASS 2>/dev/null || true)
@@ -211,6 +232,11 @@ jobs:
           echo "ToatVM is live at $URL" >> "$GITHUB_STEP_SUMMARY"
           gh variable set VM_URL --body "$URL" --repo "$GITHUB_REPOSITORY" \
             2>/dev/null || echo "note: VM_URL variable not set (needs workflow write perms; logs still work)"
+
+          if [ -n "${{ github.event.inputs.label }}" ]; then
+            gh variable set VM_LABEL --body "${{ github.event.inputs.label }}" --repo "$GITHUB_REPOSITORY" \
+              2>/dev/null || true
+          fi
 
           LIFETIME="${{ github.event.inputs.lifetime || '60' }}"
           echo "Running cycle for ${LIFETIME} minutes (or until VM_STOP is set)..."
@@ -267,5 +293,7 @@ jobs:
             -f post-run="${{ github.event.inputs.post-run || '' }}" \
             -f disk-size="${{ github.event.inputs.disk-size || '10' }}" \
             -f cpu-limit="${{ github.event.inputs.cpu-limit || '1' }}" \
-            -f mem-limit="${{ github.event.inputs.mem-limit || '2' }}"
+            -f mem-limit="${{ github.event.inputs.mem-limit || '2' }}" \
+            -f ports="${{ github.event.inputs.ports || '' }}" \
+            -f label="${{ github.event.inputs.label || '' }}"
           echo "Re-dispatched ToatVM. State was cached for the next run."

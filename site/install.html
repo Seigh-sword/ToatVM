@@ -73,6 +73,23 @@ toatvm -init    # interactive wizard: OS, boot, controls</pre>
       <h2>Uninstall</h2>
       <pre>npm uninstall -g toatvm
 rmdir /s %USERPROFILE%\.config\toatvm</pre>
+
+      <h2>ToatVM Lite</h2>
+      <p>
+        A minimal, web-focused version of the CLI. No banner, no license command,
+        no templates — just boot, fetch URL, and open. Great for quick access
+        or embedding in scripts.
+      </p>
+      <pre>npm i -g toatvm-lite
+toatvm-lite -help</pre>
+      <p>Shares the same config file at <code>~/.config/toatvm/config.json</code>.</p>
+
+      <h2>From source (lite)</h2>
+      <pre>git clone https://github.com/Seigh-sword/ToatVM.git
+cd ToatVM/cli-lite
+npm install
+npm run build
+node dist/index.js -help</pre>
     </div>
 
     <footer>ToatVM - MIT Licensed - Experimental - Not for production</footer>
