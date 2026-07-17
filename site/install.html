@@ -54,6 +54,25 @@ toatvm -init    # interactive wizard: OS, boot, controls</pre>
         <code>workflow</code> scopes. It is stored only in
         <code>~/.config/toatvm/config.json</code> on your machine.
       </p>
+
+      <h2>Testing a new release</h2>
+      <p>
+        To test a specific version before it hits the main registry, install
+        directly from GitHub:
+      </p>
+      <pre>npm i -g toatvm@Seigh-sword/ToatVM#v0.3.0</pre>
+      <p>
+        Or install the latest main build (may be unstable):
+      </p>
+      <pre>npm i -g toatvm@Seigh-sword/ToatVM#main</pre>
+      <p>
+        After installing, verify the version:
+      </p>
+      <pre>toatvm -version</pre>
+
+      <h2>Uninstall</h2>
+      <pre>npm uninstall -g toatvm
+rmdir /s %USERPROFILE%\.config\toatvm</pre>
     </div>
 
     <footer>ToatVM - MIT Licensed - Experimental - Not for production</footer>

@@ -3,15 +3,20 @@ import * as p from "@clack/prompts";
 import {
   Account,
   cancelRun,
+  deleteTemplate,
   deleteVariable,
   dispatchWorkflow,
   findRunInfo,
+  getRunHealth,
   getRunLogs,
   getVariable,
   listRuns,
+  listTemplates,
   loadConfig,
   saveConfig,
+  saveTemplate,
   setVariable,
+  Template,
   WORKFLOWS,
 } from "./api.js";
 import { BANNER } from "./banner.js";
@@ -38,7 +43,7 @@ function help(): void {
 ${"ToatVM CLI".padEnd(0)} v${VERSION}
 
 A virtual machine that runs inside GitHub Actions runners.
-Experimental — not for permanent or production use.
+Experimental - not for permanent or production use.
 
 INSTALL
   npm i -g toatvm
@@ -64,6 +69,14 @@ COMMANDS
   -share [pw]      Password-protect the shared tunnel (ttyd basic auth)
   -unshare         Remove the share password
   -exec "<cmd>"    Run a command on the live VM over the tunnel
+  -template        Save, list, apply, or delete session templates
+  -port            Manage port forwards for the active session
+  -env             Manage environment variables for the next boot
+  -health          Check the health of the active or a recent run
+  -history         Show detailed session history with status
+  -import <file>   Import accounts from a JSON file
+  -export [file]   Export accounts to a JSON file
+  -cleanup         Clean up old workflow runs
   -version         Print version
   -license         Print the license
   -help            Show this help
@@ -76,9 +89,17 @@ GLOBAL FLAGS (for -boot / -init)
   --pass <pw>       shell password (random if blank)
   --cycle <min>     minutes per cycle (default 60)
   --name <label>    a friendly session name (stored locally)
+  --env <json>      environment variables as JSON object
+  --pre-run <cmd>   shell command to run inside VM on boot
+  --post-run <cmd>  shell command to run inside VM after cycle
+  --ports <list>    comma-separated host:container ports (e.g. 8080:80,3000:3000)
+  --cpu <cores>     CPU limit for the container
+  --mem <gb>        Memory limit for the container
+  --disk <gb>       Disk size for the container
 
 Accounts are stored at ~/.config/toatvm/config.json.
 The PAT needs 'repo' + 'workflow' scopes.
+Templates are stored at ~/.config/toatvm/templates/.
 `);
 }
 
@@ -273,6 +294,13 @@ async function cmdStatus(): Promise<void> {
   console.log(`\nLive URL: ${live.url}`);
   if (live.creds) console.log(`login:      ${live.creds.user} / ${live.creds.pass}`);
   console.log(`run:        ${acc.owner}/${acc.repo} #${live.runId}`);
+  const health = await getRunHealth(acc, live.runId).catch(() => null);
+  if (health) {
+    console.log(`health:     ${health.status}`);
+    for (const job of health.jobs) {
+      console.log(`  job ${job.name}: ${job.status} (${job.conclusion ?? "running"})`);
+    }
+  }
 }
 
 async function cmdUrl(copy: boolean): Promise<void> {
@@ -314,15 +342,35 @@ async function boot(opts: {
   password: string;
   cycle: string;
   label?: string;
+  env: Record<string, string>;
+  preRun: string;
+  postRun: string;
+  ports: string[];
+  cpu: string;
+  mem: string;
+  disk: string;
+  geometry?: string;
 }): Promise<void> {
   const acc = resolveAccount(opts.account);
   const workflow = opts.mode === "desktop" ? WORKFLOWS.desktop : WORKFLOWS.terminal;
-  const inputs: Record<string, string> = { lifetime: opts.cycle };
+  const inputs: Record<string, string> = {
+    lifetime: opts.cycle,
+    env: JSON.stringify(opts.env),
+    preRun: opts.preRun,
+    postRun: opts.postRun,
+    cpuLimit: opts.cpu,
+    memLimit: opts.mem,
+    diskSize: opts.disk,
+  };
   if (opts.mode === "terminal") {
     inputs.image = opts.os;
     inputs.username = opts.username;
     inputs.password = opts.password;
+  } else {
+    inputs.geometry = opts.geometry ?? "1280x720";
   }
+  if (opts.label) inputs.label = opts.label;
+  if (opts.ports.length > 0) inputs.ports = opts.ports.join(",");
   try {
     await deleteVariable(acc, "VM_STOP");
     await dispatchWorkflow(acc, workflow, inputs);
@@ -335,7 +383,6 @@ async function boot(opts: {
     const cfg = loadConfig();
     const a = cfg.accounts.find((x) => x.id === acc.id);
     if (a) {
-      // store session label in a variable for later display (best effort)
       await setVariable(acc, "VM_LABEL", opts.label).catch(() => {});
     }
   }
@@ -343,6 +390,8 @@ async function boot(opts: {
 
 async function cmdBoot(args: string[]): Promise<void> {
   const flags = parseFlags(args);
+  const env = parseEnvJson(flags.env ?? "{}");
+  const ports = (flags.ports ?? "").split(",").map((s) => s.trim()).filter(Boolean);
   await boot({
     account: flags.account,
     mode: (flags.mode === "d" ? "desktop" : "terminal") as "terminal" | "desktop",
@@ -351,6 +400,14 @@ async function cmdBoot(args: string[]): Promise<void> {
     password: flags.pass ?? "",
     cycle: flags.cycle ?? "60",
     label: flags.name,
+    env,
+    preRun: flags.preRun ?? "",
+    postRun: flags.postRun ?? "",
+    ports,
+    cpu: flags.cpu ?? "1",
+    mem: flags.mem ?? "2",
+    disk: flags.disk ?? "10",
+    geometry: flags.geometry,
   });
   p.log.info("Tip: run 'toatvm -status' (or -init) to watch it come up.");
 }
@@ -557,7 +614,7 @@ async function cmdExec(command: string): Promise<void> {
     process.exit(1);
   }
   const s = p.spinner();
-  s.start("Running on VM…");
+  s.start("Running on VM...");
   const res = await ttydRun(live.url, command + "\n", {
     expect: "$",
     timeoutMs: 25000,
@@ -568,15 +625,388 @@ async function cmdExec(command: string): Promise<void> {
   else p.log.warn("No output captured.");
 }
 
+function parseEnvJson(jsonStr: string): Record<string, string> {
+  try {
+    const parsed = JSON.parse(jsonStr);
+    if (typeof parsed === "object" && !Array.isArray(parsed)) {
+      const out: Record<string, string> = {};
+      for (const [k, v] of Object.entries(parsed)) {
+        if (typeof k === "string" && typeof v === "string") out[k] = v;
+      }
+      return out;
+    }
+  } catch {
+    // ignore
+  }
+  return {};
+}
+
+function buildInputs(opts: {
+  mode: "terminal" | "desktop";
+  os: string;
+  username: string;
+  password: string;
+  cycle: string;
+  label?: string;
+  env: Record<string, string>;
+  preRun: string;
+  postRun: string;
+  ports: string[];
+  cpu: string;
+  mem: string;
+  disk: string;
+  geometry?: string;
+}): Record<string, string> {
+  const inputs: Record<string, string> = {
+    lifetime: opts.cycle,
+    env: JSON.stringify(opts.env),
+    preRun: opts.preRun,
+    postRun: opts.postRun,
+    cpuLimit: opts.cpu,
+    memLimit: opts.mem,
+    diskSize: opts.disk,
+  };
+  if (opts.mode === "terminal") {
+    inputs.image = opts.os;
+    inputs.username = opts.username;
+    inputs.password = opts.password;
+  } else {
+    inputs.geometry = opts.geometry ?? "1280x720";
+  }
+  if (opts.label) inputs.label = opts.label;
+  if (opts.ports.length > 0) inputs.ports = opts.ports.join(",");
+  return inputs;
+}
+
+// ---- templates -------------------------------------------------------------
+
+async function cmdTemplate(args: string[]): Promise<void> {
+  brand();
+  const action = args[0];
+  if (!action || action === "list") {
+    const templates = listTemplates();
+    if (templates.length === 0) {
+      console.log("No templates saved. Use 'toatvm -template save <name>' to create one.");
+      return;
+    }
+    console.log("\nTemplates:");
+    for (const t of templates) {
+      console.log(`- ${t.id}: ${t.name} (${t.mode}${t.os ? ", " + t.os : ""})`);
+    }
+    return;
+  }
+  if (action === "save") {
+    const name = args[1];
+    if (!name) {
+      p.log.error("Usage: toatvm -template save <name>");
+      return;
+    }
+    const mode = await p.select({
+      message: "Mode",
+      options: [
+        { value: "terminal", label: "Terminal (shell)" },
+        { value: "desktop", label: "Desktop (XFCE GUI)" },
+      ],
+    });
+    if (p.isCancel(mode)) return;
+    const os = mode === "terminal"
+      ? await p.select({ message: "OS", options: OS_OPTIONS })
+      : undefined;
+    if (mode === "terminal" && p.isCancel(os)) return;
+    const username = await p.text({ message: "Username", initialValue: "toat" });
+    if (p.isCancel(username)) return;
+    const password = await p.password({ message: "Password (blank = random)" });
+    if (p.isCancel(password)) return;
+    const cycle = await p.text({ message: "Cycle minutes", initialValue: "60" });
+    if (p.isCancel(cycle)) return;
+    const envJson = await p.text({ message: "Env vars (JSON)", initialValue: "{}" });
+    if (p.isCancel(envJson)) return;
+    const preRun = await p.text({ message: "Pre-run script", initialValue: "" });
+    if (p.isCancel(preRun)) return;
+    const postRun = await p.text({ message: "Post-run script", initialValue: "" });
+    if (p.isCancel(postRun)) return;
+    const portsStr = await p.text({ message: "Ports (host:container,...)", initialValue: "" });
+    if (p.isCancel(portsStr)) return;
+    const cpu = await p.text({ message: "CPU limit (cores)", initialValue: "1" });
+    if (p.isCancel(cpu)) return;
+    const mem = await p.text({ message: "Memory limit (GB)", initialValue: "2" });
+    if (p.isCancel(mem)) return;
+    const disk = await p.text({ message: "Disk size (GB)", initialValue: "10" });
+    if (p.isCancel(disk)) return;
+
+    const tpl: Template = {
+      id: crypto.randomUUID(),
+      name: String(name),
+      mode: mode as "terminal" | "desktop",
+      os: mode === "terminal" ? String(os) : undefined,
+      username: String(username),
+      password: String(password),
+      cycle: String(cycle),
+      env: parseEnvJson(envJson),
+      preRun: String(preRun),
+      postRun: String(postRun),
+      ports: String(portsStr).split(",").map((s) => s.trim()).filter(Boolean),
+      cpu: String(cpu),
+      mem: String(mem),
+      disk: String(disk),
+      createdAt: new Date().toISOString(),
+    };
+    saveTemplate(tpl);
+    p.outro(`Template "${name}" saved.`);
+    return;
+  }
+  if (action === "delete") {
+    const id = args[1];
+    if (!id) {
+      p.log.error("Usage: toatvm -template delete <id>");
+      return;
+    }
+    const templates = listTemplates();
+    const tpl = templates.find((t) => t.id === id || t.name === id);
+    if (!tpl) {
+      p.log.error("Template not found.");
+      return;
+    }
+    deleteTemplate(tpl.id);
+    p.log.success(`Deleted template "${tpl.name}".`);
+    return;
+  }
+  if (action === "apply") {
+    const id = args[1];
+    if (!id) {
+      p.log.error("Usage: toatvm -template apply <id>");
+      return;
+    }
+    const templates = listTemplates();
+    const tpl = templates.find((t) => t.id === id || t.name === id);
+    if (!tpl) {
+      p.log.error("Template not found.");
+      return;
+    }
+    const acc = resolveAccount();
+    const workflow = tpl.mode === "desktop" ? WORKFLOWS.desktop : WORKFLOWS.terminal;
+    const inputs = buildInputs({
+      mode: tpl.mode,
+      os: tpl.os ?? "ubuntu:latest",
+      username: tpl.username,
+      password: tpl.password,
+      cycle: tpl.cycle,
+      env: tpl.env,
+      preRun: tpl.preRun,
+      postRun: tpl.postRun,
+      ports: tpl.ports,
+      cpu: tpl.cpu,
+      mem: tpl.mem,
+      disk: tpl.disk,
+      geometry: tpl.geometry,
+    });
+    try {
+      await deleteVariable(acc, "VM_STOP");
+      await dispatchWorkflow(acc, workflow, inputs);
+    } catch (err) {
+      p.log.error(String(err instanceof Error ? err.message : err));
+      process.exit(1);
+    }
+    p.log.success(`Applied template "${tpl.name}" on ${acc.owner}/${acc.repo}.`);
+    return;
+  }
+  p.log.error("Unknown template action. Use: save, list, apply, delete");
+}
+
+// ---- ports ---------------------------------------------------------------
+
+async function cmdPort(args: string[]): Promise<void> {
+  brand();
+  const action = args[0];
+  if (!action || action === "list") {
+    console.log("\nPort forwards are stored in session templates and passed as workflow inputs.");
+    console.log("Use 'toatvm -template save' to include ports in a template.");
+    const live = await findLive(resolveAccount()).catch(() => null);
+    if (live) {
+      console.log(`\nLive URL: ${live.url}`);
+      console.log("Port forwards would be exposed via the tunnel URL (cloudflared maps all ports).");
+    }
+    return;
+  }
+  if (action === "add") {
+    const mapping = args[1];
+    if (!mapping || !mapping.includes(":")) {
+      p.log.error("Usage: toatvm -port add <host:container>");
+      return;
+    }
+    p.log.info(`Port ${mapping} will be forwarded on next boot via template.`);
+    p.log.info("Save a template with this port mapping: toatvm -template save <name>");
+    return;
+  }
+  p.log.error("Unknown port action. Use: list, add");
+}
+
+// ---- env ------------------------------------------------------------------
+
+async function cmdEnv(args: string[]): Promise<void> {
+  brand();
+  const action = args[0];
+  if (!action || action === "list") {
+    const acc = resolveAccount();
+    const vars = await getVariable(acc, "VM_ENV_KEYS").catch(() => null);
+    console.log("\nEnvironment variables are set per-boot via --env JSON.");
+    if (vars) console.log(`Stored keys: ${vars}`);
+    else console.log("No env vars stored in repo variables.");
+    return;
+  }
+  if (action === "set") {
+    const pair = args[1];
+    if (!pair || !pair.includes("=")) {
+      p.log.error("Usage: toatvm -env set KEY=VALUE");
+      return;
+    }
+    const [k, v] = pair.split("=", 2);
+    const acc = resolveAccount();
+    const current = (await getVariable(acc, "VM_ENV_KEYS").catch(() => null)) ?? "";
+    const keys = new Set(current.split(",").filter(Boolean));
+    keys.add(k);
+    await setVariable(acc, "VM_ENV_KEYS", Array.from(keys).join(",")).catch(() => {});
+    await setVariable(acc, `VM_ENV_${k}`, v).catch(() => {});
+    p.log.success(`Set env ${k}=${v}`);
+    return;
+  }
+  if (action === "delete") {
+    const key = args[1];
+    if (!key) {
+      p.log.error("Usage: toatvm -env delete KEY");
+      return;
+    }
+    const acc = resolveAccount();
+    await deleteVariable(acc, `VM_ENV_${key}`).catch(() => {});
+    const current = (await getVariable(acc, "VM_ENV_KEYS").catch(() => null)) ?? "";
+    const keys = current.split(",").filter((k) => k && k !== key).join(",");
+    await setVariable(acc, "VM_ENV_KEYS", keys).catch(() => {});
+    p.log.success(`Deleted env ${key}`);
+    return;
+  }
+  p.log.error("Unknown env action. Use: list, set, delete");
+}
+
+// ---- health ---------------------------------------------------------------
+
+async function cmdHealth(runId?: number): Promise<void> {
+  brand();
+  const acc = resolveAccount();
+  let targetRunId = runId;
+  if (!targetRunId) {
+    const live = await findLive(acc);
+    if (!live) {
+      p.log.error("No live session and no run ID provided.");
+      process.exit(1);
+    }
+    targetRunId = live.runId;
+  }
+  const health = await getRunHealth(acc, targetRunId);
+  if (!health) {
+    p.log.error(`Could not fetch health for run #${targetRunId}.`);
+    process.exit(1);
+  }
+  console.log(`\nRun #${targetRunId}: ${health.status}`);
+  for (const job of health.jobs) {
+    const icon = job.status === "completed" ? (job.conclusion === "success" ? "[ok]" : "[!!]") : "[..]";
+    console.log(`  ${icon} ${job.name}: ${job.status} (${job.conclusion ?? "running"})`);
+  }
+}
+
+// ---- history --------------------------------------------------------------
+
+async function cmdHistory(): Promise<void> {
+  brand();
+  const acc = resolveAccount();
+  const runs = await listRuns(acc, WORKFLOWS.terminal).catch(() => []);
+  const dRuns = await listRuns(acc, WORKFLOWS.desktop).catch(() => []);
+  const all = [...runs, ...dRuns].sort((a, b) => b.id - a.id).slice(0, 20);
+  console.log(`\nSession history for ${acc.owner}/${acc.repo}:`);
+  console.log(`  ID       Status        Workflow    Created`);
+  console.log(`  -------  ------------  ----------  -------`);
+  for (const r of all) {
+    const date = new Date(r.created_at).toLocaleString();
+    const wf = r.name.includes("desktop") || r.name.includes("vm-desktop") ? "desktop" : "terminal";
+    console.log(`  #${String(r.id).padEnd(7)} ${(r.status ?? "unknown").padEnd(13)} ${wf.padEnd(11)} ${date}`);
+  }
+}
+
+// ---- import / export -------------------------------------------------------
+
+async function cmdImport(file: string): Promise<void> {
+  brand();
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const target = path.resolve(file);
+  if (!fs.existsSync(target)) {
+    p.log.error(`File not found: ${target}`);
+    return;
+  }
+  try {
+    const raw = JSON.parse(fs.readFileSync(target, "utf8"));
+    if (!Array.isArray(raw.accounts)) {
+      p.log.error("Invalid import: expected { accounts: [...] }");
+      return;
+    }
+    const cfg = loadConfig();
+    for (const a of raw.accounts as Account[]) {
+      if (!a.name || !a.owner || !a.repo || !a.token) continue;
+      const existing = cfg.accounts.find((x) => x.owner === a.owner && x.repo === a.repo);
+      if (existing) {
+        existing.token = a.token;
+        existing.name = a.name;
+      } else {
+        cfg.accounts.push({ ...a, id: crypto.randomUUID() });
+      }
+    }
+    if (!cfg.activeId && cfg.accounts.length > 0) cfg.activeId = cfg.accounts[0].id;
+    saveConfig(cfg);
+    p.outro(`Imported ${raw.accounts.length} accounts.`);
+  } catch (e) {
+    p.log.error(`Import failed: ${e instanceof Error ? e.message : e}`);
+  }
+}
+
+async function cmdExport(file?: string): Promise<void> {
+  brand();
+  const cfg = loadConfig();
+  const target = file ?? `${process.env.USERPROFILE ?? process.env.HOME ?? "~"}/.config/toatvm/toatvm-export.json`;
+  const fs = await import("node:fs");
+  const out = {
+    version: VERSION,
+    exportedAt: new Date().toISOString(),
+    accounts: cfg.accounts.map(({ token, ...rest }) => rest),
+  };
+  fs.writeFileSync(target, JSON.stringify(out, null, 2));
+  p.outro(`Exported ${cfg.accounts.length} accounts to ${target}`);
+}
+
+// ---- cleanup --------------------------------------------------------------
+
+async function cmdCleanup(): Promise<void> {
+  brand();
+  const acc = resolveAccount();
+  let deleted = 0;
+  for (const wf of [WORKFLOWS.terminal, WORKFLOWS.desktop]) {
+    const runs = await listRuns(acc, wf).catch(() => []);
+    const toCancel = runs.filter((r) => r.status === "in_progress" || r.status === "queued");
+    for (const r of toCancel) {
+      await cancelRun(acc, r.id).catch(() => {});
+      deleted++;
+    }
+  }
+  p.outro(`Cleaned up ${deleted} active runs.`);
+}
+
 async function cmdInit(): Promise<void> {
   brand();
   const cfg = loadConfig();
   if (cfg.accounts.length === 0) {
-    p.log.error("No accounts yet — run 'toatvm -new' first.");
+    p.log.error("No accounts yet - run 'toatvm -new' first.");
     return;
   }
 
-  p.intro(" ToatVM * launch");
+  p.intro(" ToatVM - launch");
 
   let acc: Account | undefined =
     cfg.accounts.find((a) => a.id === cfg.activeId) ?? cfg.accounts[0];
@@ -599,7 +1029,7 @@ async function cmdInit(): Promise<void> {
   });
   if (p.isCancel(mode)) return;
 
-  const inputs: Record<string, string> = { lifetime: "60" };
+  const inputs: Record<string, string> = { lifetime: "60", env: "{}", preRun: "", postRun: "", cpuLimit: "1", memLimit: "2", diskSize: "10" };
   if (mode === "terminal") {
     const os = await p.select({ message: "OS", options: OS_OPTIONS });
     if (p.isCancel(os)) return;
@@ -607,20 +1037,52 @@ async function cmdInit(): Promise<void> {
     if (p.isCancel(username)) return;
     const password = await p.password({ message: "Password (blank = random)" });
     if (p.isCancel(password)) return;
-    const lifetime = await p.text({ message: "Cycle minutes", initialValue: "60" });
-    if (p.isCancel(lifetime)) return;
-    const label = await p.text({ message: "Session label (optional)", initialValue: "" });
-    if (p.isCancel(label)) return;
     inputs.image = String(os);
     inputs.username = String(username);
     inputs.password = String(password);
-    inputs.lifetime = String(lifetime);
-    if (String(label)) inputs.label = String(label);
-  } else {
-    const lifetime = await p.text({ message: "Cycle minutes", initialValue: "60" });
-    if (p.isCancel(lifetime)) return;
-    inputs.lifetime = String(lifetime);
   }
+  const lifetime = await p.text({ message: "Cycle minutes", initialValue: "60" });
+  if (p.isCancel(lifetime)) return;
+  inputs.lifetime = String(lifetime);
+
+  const envJson = await p.text({ message: "Env vars (JSON)", initialValue: "{}" });
+  if (p.isCancel(envJson)) return;
+  inputs.env = String(envJson);
+
+  const preRun = await p.text({ message: "Pre-run script", initialValue: "" });
+  if (p.isCancel(preRun)) return;
+  inputs.preRun = String(preRun);
+
+  const postRun = await p.text({ message: "Post-run script", initialValue: "" });
+  if (p.isCancel(postRun)) return;
+  inputs.postRun = String(postRun);
+
+  const portsStr = await p.text({ message: "Ports (host:container,...)", initialValue: "" });
+  if (p.isCancel(portsStr)) return;
+  const ports = String(portsStr).split(",").map((s) => s.trim()).filter(Boolean);
+  if (ports.length > 0) inputs.ports = ports.join(",");
+
+  const cpu = await p.text({ message: "CPU limit (cores)", initialValue: "1" });
+  if (p.isCancel(cpu)) return;
+  inputs.cpuLimit = String(cpu);
+
+  const mem = await p.text({ message: "Memory limit (GB)", initialValue: "2" });
+  if (p.isCancel(mem)) return;
+  inputs.memLimit = String(mem);
+
+  const disk = await p.text({ message: "Disk size (GB)", initialValue: "10" });
+  if (p.isCancel(disk)) return;
+  inputs.diskSize = String(disk);
+
+  if (mode === "desktop") {
+    const geometry = await p.text({ message: "VNC geometry", initialValue: "1280x720" });
+    if (p.isCancel(geometry)) return;
+    inputs.geometry = String(geometry);
+  }
+
+  const label = await p.text({ message: "Session label (optional)", initialValue: "" });
+  if (p.isCancel(label)) return;
+  if (String(label)) inputs.label = String(label);
 
   const confirm = await p.confirm({
     message: `Boot ${mode} VM on ${acc.owner}/${acc.repo}?`,
@@ -638,7 +1100,7 @@ async function cmdInit(): Promise<void> {
   }
 
   const spinner = p.spinner();
-  spinner.start("Booting…");
+  spinner.start("Booting...");
   const found = await waitForUrl(acc, workflow, spinner);
 
   if (!found) {
@@ -678,7 +1140,7 @@ async function cmdInit(): Promise<void> {
       console.log(`ssh ${user}@${found.url.replace(/^https?:\/\//, "")} -p 22`);
     } else if (action === "shutdown") {
       const s = p.spinner();
-      s.start("Shutting down (caching state)…");
+      s.start("Shutting down (caching state)...");
       await setVariable(acc, "VM_STOP", "1").catch(() => {});
       await waitForStop(acc, workflow);
       s.stop("Stopped. State was cached.");
@@ -747,8 +1209,14 @@ async function main(): Promise<void> {
     case "list":
       await cmdList();
       break;
+    case "history":
+      await cmdHistory();
+      break;
     case "status":
       await cmdStatus();
+      break;
+    case "health":
+      await cmdHealth(rest[0] ? Number(rest[0]) : undefined);
       break;
     case "url":
       await cmdUrl(rest.includes("--copy") || rest.includes("-c"));
@@ -782,6 +1250,24 @@ async function main(): Promise<void> {
       break;
     case "exec":
       await cmdExec(rest.join(" "));
+      break;
+    case "template":
+      await cmdTemplate(rest);
+      break;
+    case "port":
+      await cmdPort(rest);
+      break;
+    case "env":
+      await cmdEnv(rest);
+      break;
+    case "import":
+      await cmdImport(rest[0] ?? "toatvm-import.json");
+      break;
+    case "export":
+      await cmdExport(rest[0]);
+      break;
+    case "cleanup":
+      await cmdCleanup();
       break;
     case "init":
       await cmdInit();

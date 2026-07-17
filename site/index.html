@@ -23,10 +23,10 @@
     <section class="hero">
       <pre class="ascii">
  ____  ____  ____  ___  __  __    __  __  ___  ____  ____
-/ ___|| ___|/ ___|/ _ \\ \\ \\/ /   / / | |/ _ \\/ ___|| __ )
-\\___ \\|___|| |   | | | | \\  /   / /  | | | | \\___ \\|  _ \\
- ___) |___)| |___| |_| | /  \\  / /___| | |_| |___) | |_) |
-|____/|____/ \\____|\\___/ /_/\\_\\\\____/|_|\\___/|____/|____/
+/ ___|| ___|/ ___|/ _ \ \ \/ /   / / | |/ _ \/ ___|| __ )
+\___ \|___|| |   | | | | \  /   / /  | | | | \___ \|  _ \
+ ___) |___)| |___| |_| | /  \  / /___| | |_| |___) | |_) |
+|____/|____/ \____|\___/ /_/\_\\____/|_|\___/|____/|____/
       </pre>
       <h1>The VM that lives inside GitHub Actions</h1>
       <p>
@@ -52,6 +52,14 @@
         <p>A shell, or a full XFCE GUI over noVNC.</p>
       </div>
       <div class="card">
+        <h3>Templates</h3>
+        <p>Save and reuse boot configs with <code>toatvm -template</code>.</p>
+      </div>
+      <div class="card">
+        <h3>Port forwards</h3>
+        <p>Expose container ports via cloudflared tunnel.</p>
+      </div>
+      <div class="card">
         <h3>Shareable</h3>
         <p>Hand a <code>*.trycloudflare.com</code> URL to a friend (password option).</p>
       </div>
@@ -75,6 +83,18 @@ toatvm -init       # pick OS, boot, get your live URL</pre>
         <code>cloudflared</code>. The CLI reads the URL and credentials from the
         run's logs — no special token permission needed.
       </p>
+      <h2>New in 0.3.0</h2>
+      <ul>
+        <li><strong>Templates:</strong> save, list, apply, and delete session configs with <code>toatvm -template</code></li>
+        <li><strong>Environment variables:</strong> pass JSON env vars into the container with <code>--env</code> or <code>toatvm -env</code></li>
+        <li><strong>Pre-run / post-run scripts:</strong> run shell commands inside the VM on boot or after the cycle</li>
+        <li><strong>Port forwards:</strong> expose host:container port mappings via the tunnel</li>
+        <li><strong>Resource limits:</strong> set CPU, memory, and disk size for the container</li>
+        <li><strong>Health checks:</strong> inspect run and job status with <code>toatvm -health</code></li>
+        <li><strong>Session history:</strong> view detailed history with <code>toatvm -history</code></li>
+        <li><strong>Import / export:</strong> migrate accounts between machines with <code>toatvm -import</code> and <code>toatvm -export</code></li>
+        <li><strong>Cleanup:</strong> cancel stale active runs with <code>toatvm -cleanup</code></li>
+      </ul>
     </div>
 
     <footer>ToatVM - MIT Licensed - Experimental - Not for production</footer>

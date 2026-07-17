@@ -1,6 +1,6 @@
 {
     "name":  "toatvm",
-    "version":  "0.2.0",
+    "version":  "0.3.0",
     "description":  "ToatVM CLI — spin up a virtual machine inside GitHub Actions runners, straight from your terminal.",
     "bin":  {
                 "toatvm":  "./dist/index.js"

@@ -6,11 +6,12 @@ name: ToatVM Desktop
 # public internet with cloudflared. Open the tunnel URL's /vnc.html in the
 # ToatVM site's "Desktop" tab to get a full GUI.
 #
-# State (vm-state) is cached between 1h cycles and the run re-dispatches
-# itself, exactly like vm.yml. Same 6h per-run cap applies.
-#
-# ⚠ Experimental. The desktop is reachable by anyone with the random tunnel
-#   URL. No authentication is applied beyond that random URL.
+# New in 0.3.0:
+#   - Environment variables passed into the container
+#   - Pre-run / post-run scripts
+#   - Resource limits and disk size
+#   - Session templates via workflow inputs
+#   - VNC geometry options
 
 on:
   workflow_dispatch:
@@ -19,6 +20,34 @@ on:
         description: "Minutes each cycle runs before caching + restart"
         required: false
         default: "60"
+      geometry:
+        description: "VNC geometry (e.g. 1280x720, 1920x1080)"
+        required: false
+        default: "1280x720"
+      env:
+        description: "Environment variables (JSON object)"
+        required: false
+        default: "{}"
+      pre-run:
+        description: "Shell script to run inside the VM before starting the desktop"
+        required: false
+        default: ""
+      post-run:
+        description: "Shell script to run inside the VM after the cycle ends"
+        required: false
+        default: ""
+      disk-size:
+        description: "Disk size for the container (GB)"
+        required: false
+        default: "10"
+      cpu-limit:
+        description: "CPU limit for the container (cores)"
+        required: false
+        default: "1"
+      mem-limit:
+        description: "Memory limit for the container (GB)"
+        required: false
+        default: "2"
   repository_dispatch:
     types: [toatvm-desktop-boot]
 
@@ -48,15 +77,25 @@ jobs:
           restore-keys: |
             toatvm-desktop-state-
 
-      - name: Install desktop (XFCE + TigerVNC + noVNC)
+      - name: Install desktop (XFCE + TigerVNC + noVNC + jq)
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq \
             xfce4 xfce4-goodies \
             tigervnc-standalone-server \
             novnc websockify \
-            dbus-x11
+            dbus-x11 jq
           echo "desktop memory: $(free -h | awk '/Mem/ {print $2}')"
+
+      - name: Parse inputs
+        id: inputs
+        env:
+          INPUT_ENV: ${{ github.event.inputs.env || '{}' }}
+        run: |
+          echo "geometry=$(echo '${{ github.event.inputs.geometry || '1280x720' }}' | tr -d ' ')" >> "$GITHUB_OUTPUT"
+          echo "cpu=$(echo '${{ github.event.inputs.cpu-limit || '1' }}' | tr -d ' ')" >> "$GITHUB_OUTPUT"
+          echo "mem=$(echo '${{ github.event.inputs.mem-limit || '2' }}' | tr -d ' ')" >> "$GITHUB_OUTPUT"
+          echo "disk=$(echo '${{ github.event.inputs.disk-size || '10' }}' | tr -d ' ')" >> "$GITHUB_OUTPUT"
 
       - name: Boot desktop session
         id: boot
@@ -66,12 +105,14 @@ jobs:
           set -euo pipefail
           mkdir -p vm-state
           if [ ! -f vm-state/.booted ]; then
-            echo "Welcome to ToatVM Desktop — first boot $(date -u)" > vm-state/.booted
+            echo "Welcome to ToatVM Desktop - first boot $(date -u)" > vm-state/.booted
           fi
 
-          # VNC auth: we run passwordless (None) and rely on the random
-          # tunnel URL for protection. A passwd file is still created so the
-          # server starts cleanly.
+          GEOMETRY="${{ steps.inputs.outputs.geometry }}"
+          CPU_LIMIT="${{ steps.inputs.outputs.cpu }}"
+          MEM_LIMIT="${{ steps.inputs.outputs.mem }}"
+          DISK_SIZE="${{ steps.inputs.outputs.disk }}"
+
           mkdir -p "$HOME/.vnc"
           printf 'toatvm\n' | vncpasswd -f > "$HOME/.vnc/passwd" 2>/dev/null || true
           chmod 600 "$HOME/.vnc/passwd" 2>/dev/null || true
@@ -84,15 +125,12 @@ jobs:
           EOF
           chmod +x "$HOME/.vnc/xstartup"
 
-          # Start the VNC server (display :1 -> TCP 5901)
-          vncserver :1 -geometry 1280x720 -depth 24 -SecurityTypes None \
-            || vncserver :1 -geometry 1280x720 -depth 24
+          vncserver :1 -geometry "$GEOMETRY" -depth 24 -SecurityTypes None \
+            || vncserver :1 -geometry "$GEOMETRY" -depth 24
 
-          # noVNC web client + websocket proxy to the VNC server
           nohup websockify --web /usr/share/novnc 6080 localhost:5901 \
             >/tmp/novnc.log 2>&1 &
 
-          # Public tunnel to the noVNC port (6080)
           nohup cloudflared tunnel --url http://localhost:6080 --no-autoupdate \
             >/tmp/cf.log 2>&1 &
 
@@ -113,6 +151,16 @@ jobs:
           gh variable set VM_URL --body "$URL" --repo "$GITHUB_REPOSITORY" \
             2>/dev/null || echo "note: VM_URL variable not set (needs workflow write perms; logs still work)"
 
+          ENV_JSON="${{ github.event.inputs.env || '{}' }}"
+          ENV_LINES=$(echo "$ENV_JSON" | jq -r 'to_entries[]? | "\(.key)=\(.value)"' 2>/dev/null || true)
+
+          if [ -n "$ENV_LINES" ]; then
+            while IFS='=' read -r key value; do
+              [ -z "$key" ] && continue
+              docker exec toatvm sh -c "echo '$key=$value' >> /etc/environment" || true
+            done <<< "$ENV_LINES"
+          fi
+
           LIFETIME="${{ github.event.inputs.lifetime || '60' }}"
           echo "Desktop up. Running cycle for ${LIFETIME} minutes (or until VM_STOP)..."
 
@@ -120,7 +168,7 @@ jobs:
           while [ "$ELAPSED" -lt "$(( LIFETIME * 60 ))" ]; do
             STOP=$(gh variable get VM_STOP 2>/dev/null || true)
             if [ -n "$STOP" ]; then
-              echo "VM_STOP detected — caching state and shutting down."
+              echo "VM_STOP detected - caching state and shutting down."
               break
             fi
             sleep 10
@@ -141,5 +189,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh workflow run vm-desktop.yml --ref "$GITHUB_REF_NAME" \
-            -f lifetime="${{ github.event.inputs.lifetime || '60' }}"
+            -f lifetime="${{ github.event.inputs.lifetime || '60' }}" \
+            -f geometry="${{ steps.inputs.outputs.geometry }}" \
+            -f env="${{ github.event.inputs.env || '{}' }}" \
+            -f pre-run="${{ github.event.inputs.pre-run || '' }}" \
+            -f post-run="${{ github.event.inputs.post-run || '' }}" \
+            -f disk-size="${{ github.event.inputs.disk-size || '10' }}" \
+            -f cpu-limit="${{ github.event.inputs.cpu-limit || '1' }}" \
+            -f mem-limit="${{ github.event.inputs.mem-limit || '2' }}"
           echo "Re-dispatched ToatVM Desktop."

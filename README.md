@@ -83,8 +83,18 @@ offers **Open in browser**, **Copy URL**, **ssh command**, and **Shut down
 | `toatvm -kill` | Immediately cancel the active run |
 | `toatvm -open` | Open the live URL in your browser |
 | `toatvm -ssh` | Print an ssh command pre-filled with VM creds |
-| `toatvm -sync <dir>` | Info/hint for pushing local files into the VM |
-| `toatvm -exec "<cmd>"` | Show how to run a command on the live VM |
+| `toatvm -sync <dir>` | Upload a local folder into the VM over the tunnel |
+| `toatvm -share [pw]` | Password-protect the shared tunnel |
+| `toatvm -unshare` | Remove the share password |
+| `toatvm -exec "<cmd>"` | Run a command on the live VM over the tunnel |
+| `toatvm -template` | Save, list, apply, or delete session templates |
+| `toatvm -port` | Manage port forwards for the active session |
+| `toatvm -env` | Manage environment variables for the next boot |
+| `toatvm -health` | Check the health of the active or a recent run |
+| `toatvm -history` | Show detailed session history with status |
+| `toatvm -import <file>` | Import accounts from a JSON file |
+| `toatvm -export [file]` | Export accounts to a JSON file |
+| `toatvm -cleanup` | Clean up old workflow runs |
 | `toatvm -version` | Print version |
 | `toatvm -license` | Print the MIT license |
 | `toatvm -help` | Usage |
@@ -94,15 +104,24 @@ offers **Open in browser**, **Copy URL**, **ssh command**, and **Shut down
 --account <name>   use this account
 --mode <t|d>       terminal or desktop
 --os <image>       ubuntu:latest | debian:latest | archlinux:latest |
-                    alpine:latest | fedora:latest | kalilinux/kali-rolling
+                   alpine:latest | fedora:latest | kalilinux/kali-rolling
 --user <name>      shell username (default toat)
 --pass <pw>        shell password (random if blank)
 --cycle <min>      minutes per cycle (default 60)
 --name <label>     friendly session label
+--env <json>       environment variables as JSON object
+--pre-run <cmd>    shell command to run inside VM on boot
+--post-run <cmd>   shell command to run inside VM after cycle
+--ports <list>     comma-separated host:container ports (e.g. 8080:80,3000:3000)
+--cpu <cores>      CPU limit for the container
+--mem <gb>         Memory limit for the container
+--disk <gb>        Disk size for the container
 ```
 Example:
 ```bash
-toatvm -boot --mode t --os archlinux:latest --user neo --cycle 120
+toatvm -boot --mode t --os archlinux:latest --user neo --cycle 120 \
+  --env '{"NODE_ENV":"development"}' --ports 8080:80,3000:3000 \
+  --cpu 2 --mem 4 --disk 20
 ```
 
 ---
@@ -153,6 +172,15 @@ graceful instead of a hard kill.
 20. **Backend reuse** — same workflows power both modes and any number of accounts.
 21. **Help / version / license** subcommands.
 22. **`vm-state` cache + auto re-dispatch** loop (6h cap).
+23. **Session templates** — save and reuse boot configs.
+24. **Environment variables** — pass JSON env vars into the container.
+25. **Pre-run / post-run scripts** — run shell commands on boot or after cycle.
+26. **Port forwards** — expose host:container port mappings.
+27. **Resource limits** — set CPU, memory, and disk size.
+28. **Health checks** — inspect run and job status.
+29. **Session history** — view detailed history.
+30. **Import / export** — migrate accounts between machines.
+31. **Cleanup** — cancel stale active runs.
 
 ---
 
@@ -168,6 +196,44 @@ graceful instead of a hard kill.
 
 To self-host the backend, fork the repo, enable Actions, add a PAT with
 `repo` + `workflow`, and point `toatvm -new` at your fork.
+
+---
+
+## Testing a new release
+
+After a new version is published to npm, test it without touching your global
+`toatvm` install:
+
+```bash
+# Install a specific version
+npm i -g toatvm@0.3.0
+
+# Or install the latest main build (unstable)
+npm i -g toatvm@Seigh-sword/ToatVM#main
+
+# Verify
+toatvm -version
+toatvm -help
+
+# Quick smoke test (needs a GitHub account with Actions enabled)
+toatvm -new
+toatvm -init
+```
+
+Run through the core flows:
+1. `toatvm -new` → save an account
+2. `toatvm -accounts` → confirm it appears
+3. `toatvm -init` → boot a terminal session, confirm URL appears
+4. `toatvm -status` → confirm live session details
+5. `toatvm -url --copy` → confirm clipboard gets the URL
+6. `toatvm -sync ./some-folder` → confirm upload works
+7. `toatvm -exec "uname -a"` → confirm remote execution
+8. `toatvm -stop` → confirm graceful shutdown
+9. `toatvm -list` → confirm run history appears
+10. `toatvm -template save test` → confirm template creation
+11. `toatvm -health` → confirm health output
+
+If anything fails, check the Actions tab in your repo for runner logs.
 
 ---
 

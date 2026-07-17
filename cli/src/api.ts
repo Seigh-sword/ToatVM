@@ -5,6 +5,7 @@ import { join } from "node:path";
 const GITHUB_API = "https://api.github.com";
 const CONFIG_DIR = join(homedir(), ".config", "toatvm");
 const CONFIG_PATH = join(CONFIG_DIR, "config.json");
+const TEMPLATES_DIR = join(CONFIG_DIR, "templates");
 
 export interface Account {
   id: string;
@@ -17,6 +18,27 @@ export interface Account {
 interface Config {
   accounts: Account[];
   activeId: string | null;
+  templates?: Template[];
+}
+
+export interface Template {
+  id: string;
+  name: string;
+  mode: "terminal" | "desktop";
+  os?: string;
+  username: string;
+  password: string;
+  cycle: string;
+  label?: string;
+  env: Record<string, string>;
+  preRun: string;
+  postRun: string;
+  ports: string[];
+  cpu: string;
+  mem: string;
+  disk: string;
+  geometry?: string;
+  createdAt: string;
 }
 
 export interface WorkflowRun {
@@ -39,7 +61,7 @@ export interface RunLogLine {
 }
 
 function defaultConfig(): Config {
-  return { accounts: [], activeId: null };
+  return { accounts: [], activeId: null, templates: [] };
 }
 
 export function loadConfig(): Config {
@@ -49,6 +71,7 @@ export function loadConfig(): Config {
     return {
       accounts: Array.isArray(parsed.accounts) ? parsed.accounts : [],
       activeId: parsed.activeId ?? null,
+      templates: Array.isArray(parsed.templates) ? parsed.templates : [],
     };
   } catch {
     return defaultConfig();
@@ -58,6 +81,26 @@ export function loadConfig(): Config {
 export function saveConfig(cfg: Config): void {
   mkdirSync(CONFIG_DIR, { recursive: true });
   writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2), "utf8");
+}
+
+export function listTemplates(): Template[] {
+  const cfg = loadConfig();
+  return cfg.templates ?? [];
+}
+
+export function saveTemplate(tpl: Template): void {
+  const cfg = loadConfig();
+  cfg.templates = cfg.templates ?? [];
+  const idx = cfg.templates.findIndex((t) => t.id === tpl.id);
+  if (idx >= 0) cfg.templates[idx] = tpl;
+  else cfg.templates.push(tpl);
+  saveConfig(cfg);
+}
+
+export function deleteTemplate(id: string): void {
+  const cfg = loadConfig();
+  cfg.templates = (cfg.templates ?? []).filter((t) => t.id !== id);
+  saveConfig(cfg);
 }
 
 function headers(token: string): Record<string, string> {
@@ -74,7 +117,7 @@ export async function listRuns(
   workflow: string,
 ): Promise<WorkflowRun[]> {
   const res = await fetch(
-    `${GITHUB_API}/repos/${acc.owner}/${acc.repo}/actions/workflows/${workflow}/runs?per_page=10`,
+    `${GITHUB_API}/repos/${acc.owner}/${acc.repo}/actions/workflows/${workflow}/runs?per_page=20`,
     { headers: headers(acc.token) },
   );
   if (!res.ok) throw new Error(`listRuns failed (${res.status})`);
@@ -166,8 +209,9 @@ export async function getVariable(
 
 const TUNNEL_RE = /https:\/\/[a-z0-9.-]+\.trycloudflare\.com/;
 const CRED_RE = /ToatVM credentials: user=(\S+) pass=(\S+)/;
+const VM_URL_RE = /VM_URL=(\S+)/;
+const VM_CRED_RE = /VM_CRED=(.+)/;
 
-// Read the VM_URL and credentials the runner printed into the run's job logs.
 export async function findRunInfo(
   acc: Account,
   runId: number,
@@ -188,10 +232,25 @@ export async function findRunInfo(
       if (!url) {
         const m = text.match(TUNNEL_RE);
         if (m) url = m[0];
+        else {
+          const m2 = text.match(VM_URL_RE);
+          if (m2) url = m2[1];
+        }
       }
       if (!creds) {
         const c = text.match(CRED_RE);
         if (c) creds = { user: c[1], pass: c[2] };
+        else {
+          const c2 = text.match(VM_CRED_RE);
+          if (c2) {
+            const parts = c2[1].split(" ");
+            const userPart = parts.find((p) => p.startsWith("user="));
+            const passPart = parts.find((p) => p.startsWith("pass="));
+            if (userPart && passPart) {
+              creds = { user: userPart.slice(5), pass: passPart.slice(5) };
+            }
+          }
+        }
       }
       if (url && creds) break;
     } catch {
@@ -201,7 +260,6 @@ export async function findRunInfo(
   return { url, creds };
 }
 
-// Fetch raw job logs for `toatvm -logs`.
 export async function getRunLogs(
   acc: Account,
   runId: number,
@@ -224,6 +282,26 @@ export async function getRunLogs(
     }
   }
   return out;
+}
+
+export async function getRunHealth(
+  acc: Account,
+  runId: number,
+): Promise<{ status: string; jobs: { name: string; status: string; conclusion: string | null }[] } | null> {
+  const res = await fetch(
+    `${GITHUB_API}/repos/${acc.owner}/${acc.repo}/actions/runs/${runId}`,
+    { headers: headers(acc.token) },
+  );
+  if (!res.ok) return null;
+  const data = (await res.json()) as {
+    status: string;
+    conclusion: string | null;
+    jobs?: { name: string; status: string; conclusion: string | null }[];
+  };
+  return {
+    status: data.status,
+    jobs: data.jobs?.map((j) => ({ name: j.name, status: j.status, conclusion: j.conclusion })) ?? [],
+  };
 }
 
 export const WORKFLOWS = {

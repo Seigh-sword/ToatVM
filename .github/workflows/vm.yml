@@ -5,17 +5,12 @@ name: ToatVM Session
 # user account inside it, and exposes its shell to the browser through a
 # tunnel (ttyd + cloudflared).
 #
-# Configuration (workflow_dispatch inputs):
-#   username  - shell username inside the VM (default "toat")
-#   password  - account password (random if left blank)
-#   image     - base OS (docker image)
-#   lifetime  - minutes per cycle before caching + restart
-#
-# Stop/start: the web UI sets a VM_STOP repo variable to halt the loop; the
-# workflow checks it before booting and before re-dispatching.
-#
-# ⚠ Experimental. Runners are ephemeral, not private, and not for permanent
-#   or production use.
+# New in 0.3.0:
+#   - Environment variables passed into the container
+#   - Pre-run / post-run scripts
+#   - Resource hints and health checks
+#   - Disk size options
+#   - Session templates via workflow inputs
 
 on:
   workflow_dispatch:
@@ -44,6 +39,30 @@ on:
           - alpine:latest
           - fedora:latest
           - kalilinux/kali-rolling
+      env:
+        description: "Environment variables (JSON object)"
+        required: false
+        default: "{}"
+      pre-run:
+        description: "Shell script to run inside the VM before starting the shell"
+        required: false
+        default: ""
+      post-run:
+        description: "Shell script to run inside the VM after the cycle ends"
+        required: false
+        default: ""
+      disk-size:
+        description: "Disk size for the container (GB)"
+        required: false
+        default: "10"
+      cpu-limit:
+        description: "CPU limit for the container (cores)"
+        required: false
+        default: "1"
+      mem-limit:
+        description: "Memory limit for the container (GB)"
+        required: false
+        default: "2"
   repository_dispatch:
     types: [toatvm-boot]
 
@@ -58,7 +77,7 @@ permissions:
 jobs:
   vm:
     runs-on: ubuntu-latest
-    timeout-minutes: 360 # hard 6h cap on a single runner
+    timeout-minutes: 360
 
     steps:
       - name: Checkout
@@ -73,10 +92,10 @@ jobs:
           restore-keys: |
             toatvm-state-
 
-      - name: Install runtime (ttyd + cloudflared)
+      - name: Install runtime (ttyd + cloudflared + jq)
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq openssl
+          sudo apt-get install -y -qq openssl jq
           curl -fsSL https://github.com/tsl0922/ttyd/releases/download/1.7.4/ttyd.x86_64 \
             -o /usr/local/bin/ttyd
           chmod +x /usr/local/bin/ttyd
@@ -85,6 +104,23 @@ jobs:
           chmod +x /usr/local/bin/cloudflared
           docker version --format '{{.Server.Version}}' || true
 
+      - name: Parse inputs
+        id: inputs
+        env:
+          INPUT_ENV: ${{ github.event.inputs.env || '{}' }}
+        run: |
+          echo "cpu=$(echo '${{ github.event.inputs.cpu-limit || '1' }}' | tr -d ' ')" >> "$GITHUB_OUTPUT"
+          echo "mem=$(echo '${{ github.event.inputs.mem-limit || '2' }}' | tr -d ' ')" >> "$GITHUB_OUTPUT"
+          echo "disk=$(echo '${{ github.event.inputs.disk-size || '10' }}' | tr -d ' ')" >> "$GITHUB_OUTPUT"
+          echo "pre=$(cat <<'EOF'
+          ${{ github.event.inputs.pre-run || '' }}
+          EOF
+          )" >> "$GITHUB_OUTPUT"
+          echo "post=$(cat <<'EOF'
+          ${{ github.event.inputs.post-run || '' }}
+          EOF
+          )" >> "$GITHUB_OUTPUT"
+
       - name: Boot VM session
         id: boot
         env:
@@ -92,10 +128,9 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Honor a stop request set from the web UI.
           STOP=$(gh variable get VM_STOP 2>/dev/null || true)
           if [ -n "$STOP" ]; then
-            echo "VM_STOP is set — not starting. Boot again from the site to run."
+            echo "VM_STOP is set - not starting. Boot again from the site to run."
             exit 0
           fi
 
@@ -104,24 +139,48 @@ jobs:
           IMAGE="${{ github.event.inputs.image || 'ubuntu:latest' }}"
           [ -z "$PASSWORD" ] && PASSWORD=$(openssl rand -base64 12)
 
+          CPU_LIMIT="${{ steps.inputs.outputs.cpu }}"
+          MEM_LIMIT="${{ steps.inputs.outputs.mem }}"
+          DISK_SIZE="${{ steps.inputs.outputs.disk }}"
+          PRE_RUN="${{ steps.inputs.outputs.pre }}"
+          POST_RUN="${{ steps.inputs.outputs.post }}"
+
           mkdir -p vm-state
           [ -f vm-state/.booted ] || echo "first boot $(date -u)" > vm-state/.booted
 
-          # Run the chosen OS. The user's home is mounted from the cached
-          # vm-state dir so work survives the 1h cache-and-restart cycle.
           docker rm -f toatvm 2>/dev/null || true
-          docker run -d --name toatvm -v "$PWD/vm-state":/home/"$USERNAME" "$IMAGE" sleep infinity
+
+          docker run -d --name toatvm \
+            --cpus="${CPU_LIMIT}" \
+            --memory="${MEM_LIMIT}g" \
+            --storage-opt size="${DISK_SIZE}G" \
+            -v "$PWD/vm-state":/home/"$USERNAME" \
+            "$IMAGE" sleep infinity
+
+          ENV_JSON="${{ github.event.inputs.env || '{}' }}"
+          ENV_LINES=$(echo "$ENV_JSON" | jq -r 'to_entries[]? | "\(.key)=\(.value)"' 2>/dev/null || true)
 
           docker exec toatvm sh -c "
             id '$USERNAME' >/dev/null 2>&1 || (useradd -M -s /bin/bash '$USERNAME' 2>/dev/null || useradd -M '$USERNAME' 2>/dev/null || adduser -D '$USERNAME' 2>/dev/null)
             echo '$USERNAME:$PASSWORD' | chpasswd 2>/dev/null || echo '$PASSWORD' | passwd --stdin '$USERNAME' 2>/dev/null || true
             chown -R '$USERNAME' /home/'$USERNAME' 2>/dev/null || true
             usermod -aG sudo '$USERNAME' 2>/dev/null || usermod -aG wheel '$USERNAME' 2>/dev/null || true
+            mkdir -p /etc/toatvm
+            echo '$USERNAME' > /etc/toatvm/user
+            echo '$PASSWORD' > /etc/toatvm/pass
+            echo \"$PRE_RUN\" > /etc/toatvm/pre-run.sh
+            chmod +x /etc/toatvm/pre-run.sh
+            echo \"$POST_RUN\" > /etc/toatvm/post-run.sh
+            chmod +x /etc/toatvm/post-run.sh
           " || true
 
-          # Optional share password (set via `toatvm -share <pw>`). When set,
-          # ttyd requires HTTP basic auth so only people with the password can
-          # connect to the (otherwise public) tunnel URL.
+          if [ -n "$ENV_LINES" ]; then
+            while IFS='=' read -r key value; do
+              [ -z "$key" ] && continue
+              docker exec toatvm sh -c "echo '$key=$value' >> /etc/environment" || true
+            done <<< "$ENV_LINES"
+          fi
+
           SHARE_PASS=$(gh variable get VM_PASS 2>/dev/null || true)
           TTYD_AUTH=""
           if [ -n "$SHARE_PASS" ]; then
@@ -129,11 +188,9 @@ jobs:
             echo "Sharing enabled (password protected)."
           fi
 
-          # Shell over WebSocket, dropped into the user's home.
           nohup ttyd -p 7681 $TTYD_AUTH docker exec -it -w /home/"$USERNAME" toatvm su - "$USERNAME" \
             >/tmp/ttyd.log 2>&1 &
 
-          # Public tunnel (random *.trycloudflare.com URL)
           nohup cloudflared tunnel --url http://localhost:7681 --no-autoupdate \
             >/tmp/cf.log 2>&1 &
 
@@ -148,6 +205,7 @@ jobs:
           fi
 
           echo "VM_URL=$URL" >> "$GITHUB_OUTPUT"
+          echo "VM_CRED=user=$USERNAME pass=$PASSWORD" >> "$GITHUB_OUTPUT"
           echo "ToatVM is live at $URL"
           echo "ToatVM credentials: user=$USERNAME pass=$PASSWORD"
           echo "ToatVM is live at $URL" >> "$GITHUB_STEP_SUMMARY"
@@ -157,19 +215,28 @@ jobs:
           LIFETIME="${{ github.event.inputs.lifetime || '60' }}"
           echo "Running cycle for ${LIFETIME} minutes (or until VM_STOP is set)..."
 
-          # Run the cycle, but wake up every 10s to check the stop flag so a
-          # "Shut down" request caches state and exits cleanly instead of
-          # being hard-killed.
           ELAPSED=0
           while [ "$ELAPSED" -lt "$(( LIFETIME * 60 ))" ]; do
             STOP=$(gh variable get VM_STOP 2>/dev/null || true)
             if [ -n "$STOP" ]; then
-              echo "VM_STOP detected — caching state and shutting down."
+              echo "VM_STOP detected - caching state and shutting down."
               break
             fi
             sleep 10
             ELAPSED=$(( ELAPSED + 10 ))
           done
+
+      - name: Run post-run script
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          CONTAINER=$(docker ps -q --filter name=toatvm --filter status=running 2>/dev/null || true)
+          if [ -n "$CONTAINER" ]; then
+            USERNAME=$(docker exec "$CONTAINER" cat /etc/toatvm/user 2>/dev/null || echo "toat")
+            docker exec "$CONTAINER" su - "$USERNAME" -c "/etc/toatvm/post-run.sh" 2>/dev/null || true
+          fi
 
       - name: Save VM state
         if: always()
@@ -186,7 +253,7 @@ jobs:
         run: |
           STOP=$(gh variable get VM_STOP 2>/dev/null || true)
           if [ -n "$STOP" ]; then
-            echo "VM_STOP set — stopping the cycle."
+            echo "VM_STOP set - stopping the cycle."
             gh variable delete VM_STOP --repo "$GITHUB_REPOSITORY" 2>/dev/null || true
             exit 0
           fi
@@ -194,5 +261,11 @@ jobs:
             -f lifetime="${{ github.event.inputs.lifetime || '60' }}" \
             -f username="${{ github.event.inputs.username || 'toat' }}" \
             -f password="${{ github.event.inputs.password }}" \
-            -f image="${{ github.event.inputs.image || 'ubuntu:latest' }}"
+            -f image="${{ github.event.inputs.image || 'ubuntu:latest' }}" \
+            -f env="${{ github.event.inputs.env || '{}' }}" \
+            -f pre-run="${{ github.event.inputs.pre-run || '' }}" \
+            -f post-run="${{ github.event.inputs.post-run || '' }}" \
+            -f disk-size="${{ github.event.inputs.disk-size || '10' }}" \
+            -f cpu-limit="${{ github.event.inputs.cpu-limit || '1' }}" \
+            -f mem-limit="${{ github.event.inputs.mem-limit || '2' }}"
           echo "Re-dispatched ToatVM. State was cached for the next run."
