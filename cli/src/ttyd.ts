@@ -11,9 +11,23 @@ export interface TtydResult {
 export async function ttydRun(
   url: string,
   input: string,
-  opts: { expect?: string; timeoutMs?: number } = {},
+  opts: { expect?: string; timeoutMs?: number; password?: string | null } = {},
 ): Promise<TtydResult> {
-  const wsUrl = url.replace(/\/$/, "") + "/websocket";
+  // When the VM is password-shared, ttyd requires HTTP basic auth. Browsers
+  // strip userinfo from URLs, but the WebSocket constructor accepts it. Note
+  // some runtimes reject embedded credentials, so we also send the header
+  // when the API allows it.
+  let wsUrl = url.replace(/\/$/, "") + "/websocket";
+  if (opts.password) {
+    try {
+      const u = new URL(wsUrl);
+      u.username = "toat";
+      u.password = opts.password;
+      wsUrl = u.toString();
+    } catch {
+      /* fall back to un-authed url */
+    }
+  }
   const timeoutMs = opts.timeoutMs ?? 20000;
 
   return new Promise<TtydResult>((resolve, reject) => {
