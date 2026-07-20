@@ -183,5 +183,5 @@ If anything fails, check the Actions tab in your repo for runner logs.
 ---
 
 <p align="center">
-  <sub>Built with ❤️ by the ToatCloud community. Apache 2.0 — Experimental</sub>
+  <sub>Built with ❤️ by the ToatCloud community. Apache 2.0 Experimental</sub>
 </p>

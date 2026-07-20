@@ -118,6 +118,10 @@ npm run build
 - Follow the existing code style and patterns in each package
 - Do not introduce new dependencies without prior discussion
 
+## Authors and Contributors
+
+See [AUTHORS.md](AUTHORS.md) for the list of authors and contributors.
+
 ## Community
 
 Join the conversation and connect with other contributors through the

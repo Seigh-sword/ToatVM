@@ -1,0 +1,7 @@
+{
+  "name": "toatvm",
+  "private": true,
+  "scripts": {
+    "build": "cd site && npm run build"
+  }
+}

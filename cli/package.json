@@ -1,7 +1,7 @@
 {
     "name":  "toatcloud-terminal",
     "version":  "0.3.0",
-    "description":  "ToatCloud Terminal CLI — boot and manage Linux VMs inside GitHub Actions runners.",
+    "description":  "ToatCloud Terminal CLI - boot and manage Linux VMs inside GitHub Actions runners.",
     "bin":  {
                 "toatcloud-terminal":  "./dist/index.js"
             },
