@@ -1,0 +1,41 @@
+name: Community bot
+
+on:
+  issues:
+    types: [opened]
+  pull_request:
+    types: [opened]
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  greet:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Greet issue author
+        if: github.event_name == 'issues'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = `Thanks for opening this issue, @${{ github.actor }}! A maintainer will review it shortly and make sure everything works as expected. We appreciate your contribution to ToatCloud Terminal.`;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body,
+            });
+
+      - name: Greet PR author
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = `Thanks for your pull request, @${{ github.actor }}! A maintainer will review it shortly and make sure everything works and conforms to the project guidelines. We appreciate your contribution to ToatCloud Terminal.`;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body,
+            });

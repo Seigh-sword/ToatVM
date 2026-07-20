@@ -7,9 +7,10 @@ interface TerminalProps {
   url: string;
   sharePass?: string | null;
   onClose: () => void;
+  onStop?: () => void;
 }
 
-export default function Terminal({ url, sharePass, onClose }: TerminalProps) {
+export default function Terminal({ url, sharePass, onClose, onStop }: TerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -34,9 +35,13 @@ export default function Terminal({ url, sharePass, onClose }: TerminalProps) {
     term.open(containerRef.current);
     fitAddon.fit();
 
-    const wsUrl = sharePass
-      ? `${url.replace(/\/$/, "")}/websocket`
-      : `${url.replace(/\/$/, "")}/websocket`;
+    let wsUrl = `${url.replace(/\/$/, "")}/websocket`;
+    if (sharePass) {
+      const u = new URL(wsUrl);
+      u.username = "toat";
+      u.password = sharePass;
+      wsUrl = u.toString();
+    }
 
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
@@ -95,9 +100,16 @@ export default function Terminal({ url, sharePass, onClose }: TerminalProps) {
     <div className="terminal-wrapper">
       <div className="terminal-header">
         <span className="terminal-title">ToatCloud Terminal</span>
-        <button className="btn ghost" onClick={onClose} style={{ padding: "4px 12px", fontSize: 12 }}>
-          Close
-        </button>
+        <div style={{ display: "flex", gap: 8 }}>
+          {onStop && (
+            <button className="btn ghost" onClick={onStop} style={{ padding: "4px 12px", fontSize: 12 }}>
+              Stop
+            </button>
+          )}
+          <button className="btn ghost" onClick={onClose} style={{ padding: "4px 12px", fontSize: 12 }}>
+            Close
+          </button>
+        </div>
       </div>
       <div ref={containerRef} className="terminal-container" />
     </div>

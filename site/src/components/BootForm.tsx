@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 interface BootFormProps {
-  onBoot: (data: { url: string; sharePass?: string | null }) => void;
+  onBoot: (data: { owner: string; repo: string; token: string }) => void;
 }
 
 export default function BootForm({ onBoot }: BootFormProps) {
@@ -36,12 +36,11 @@ export default function BootForm({ onBoot }: BootFormProps) {
       });
 
       if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || `Failed (${res.status})`);
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `Failed (${res.status})`);
       }
 
-      const data = await res.json();
-      onBoot({ url: data.url, sharePass: data.sharePass ?? null });
+      onBoot({ owner, repo, token });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {

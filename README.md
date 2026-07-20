@@ -1,6 +1,24 @@
 # ToatCloud Terminal
 
-**A terminal in your browser, powered by GitHub Actions runners.**
+<p align="center">
+  <img src="site/public/icon.svg" alt="ToatCloud Terminal" width="120" height="120" />
+</p>
+
+<p align="center">
+  <strong>A terminal in your browser, powered by GitHub Actions runners.</strong>
+</p>
+
+<p align="center">
+  <a href="https://github.com/Seigh-sword/ToatVM/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/Seigh-sword/ToatVM/ci.yml?branch=main&style=flat-square"></a>
+  <a href="https://www.npmjs.com/package/toatcloud-terminal"><img alt="npm" src="https://img.shields.io/npm/v/toatcloud-terminal?style=flat-square"></a>
+  <a href="https://www.npmjs.com/package/toatcloud-terminal-lite"><img alt="npm" src="https://img.shields.io/npm/v/toatcloud-terminal-lite?style=flat-square"></a>
+  <a href="https://opensource.org/licenses/Apache-2.0"><img alt="License" src="https://img.shields.io/badge/License-Apache%202.0-blue?style=flat-square"></a>
+  <a href="https://nodejs.org"><img alt="Node" src="https://img.shields.io/badge/Node-%3E%3D18-brightgreen?style=flat-square"></a>
+  <a href="https://github.com/Seigh-sword/ToatVM/issues"><img alt="Issues" src="https://img.shields.io/github/issues/Seigh-sword/ToatVM?style=flat-square"></a>
+  <a href="https://github.com/Seigh-sword/ToatVM/pulls"><img alt="PRs" src="https://img.shields.io/github/issues-pr/Seigh-sword/ToatVM?style=flat-square"></a>
+</p>
+
+---
 
 ToatCloud Terminal uses GitHub Actions as compute: it boots a Docker container
 of the OS you pick on a runner, exposes a shell over a tunnel, and hands you
@@ -8,8 +26,9 @@ a `*.trycloudflare.com` URL you can open in any browser. Each session lives up
 to ~6h and auto-restarts every cycle from a cached state.
 
 This repo contains:
-- **Web client** (`site/`) — React + Vite + TypeScript terminal UI
 - **CLI** (`cli/`) — terminal-focused CLI for power users
+- **Lite CLI** (`cli-lite/`) — minimal web-focused CLI
+- **Web client** (`site/`) — React + Vite + TypeScript documentation site
 - **Backend** (`.github/workflows/`) — GitHub Actions workflows that run the VM
 
 > **Experimental.** Runners are ephemeral and not private. Do not store
@@ -45,13 +64,6 @@ Requires [Node.js](https://nodejs.org) 18+.
 
 ## Quick start
 
-### Web
-1. Open the site
-2. Enter your GitHub repo and PAT
-3. Click "Boot Terminal"
-4. A live terminal appears in your browser
-
-### CLI
 ```bash
 toatcloud-terminal -new      # create an account (owner / repo / PAT)
 toatcloud-terminal -init     # pick OS, boot, get the live URL
@@ -62,17 +74,17 @@ toatcloud-terminal -init     # pick OS, boot, get the live URL
 ## How it works
 
 ```
- toatcloud-terminal -init  OR  web client
-       │                    │
-       ▼                    ▼
- GitHub Actions runner (ubuntu-latest, Docker)
-       │
-       ├─ docker run <OS> + create user + mount cached home
-       ├─ ttyd → shell over WebSocket
-       └─ cloudflared tunnel → *.trycloudflare.com
-       │
-       ▼
- Browser terminal (xterm.js + WebSocket)
+  toatcloud-terminal -init
+        │
+        ▼
+  GitHub Actions runner (ubuntu-latest, Docker)
+        │
+        ├─ docker run <OS> + create user + mount cached home
+        ├─ ttyd → shell over WebSocket
+        └─ cloudflared tunnel → *.trycloudflare.com
+        │
+        ▼
+  Browser terminal (xterm.js + WebSocket)
 ```
 
 The URL and credentials are read from the run's job logs. `VM_STOP` is a repo
@@ -106,7 +118,12 @@ exits — that's why `-stop` is graceful instead of a hard kill.
 - **[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)** — Community guidelines
 - **[SECURITY.md](SECURITY.md)** — Security policy and vulnerability reporting
 - **[TERMS.md](TERMS.md)** — Terms of use
+- **[CHANGELOG.md](CHANGELOG.md)** — Version history
+- **[CONTRIBUTORS.md](CONTRIBUTORS.md)** — How to contribute
+- **[AUTHORS.md](AUTHORS.md)** — Project authors
+- **[SUPPORT.md](SUPPORT.md)** — Getting help
 - **[DEVELOPER_PROMPT.md](DEVELOPER_PROMPT.md)** — Comprehensive guide for AI/developers
+- **[docs/](docs/)** — Full documentation
 
 ---
 
@@ -119,7 +136,7 @@ exits — that's why `-stop` is graceful instead of a hard kill.
 | `.github/workflows/ci.yml` | Build check |
 | `cli/` | The `toatcloud-terminal` CLI (TypeScript, `@clack/prompts`) |
 | `cli-lite/` | Minimal web-focused CLI |
-| `site/` | React + Vite + TypeScript web client |
+| `site/` | React + Vite + TypeScript documentation site |
 
 To self-host the backend, fork the repo, enable Actions, add a PAT with
 `repo` + `workflow`, and point `toatcloud-terminal -new` at your fork.
@@ -162,3 +179,9 @@ If anything fails, check the Actions tab in your repo for runner logs.
   repos) Actions logs.
 - ~6h hard cap per run; ~1h cycles with cache-and-restart.
 - Not a replacement for a real VM/cloud host.
+
+---
+
+<p align="center">
+  <sub>Built with ❤️ by the ToatCloud community. Apache 2.0 — Experimental</sub>
+</p>
