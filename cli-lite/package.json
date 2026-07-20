@@ -1,7 +1,7 @@
 {
     "name":  "toatcloud-terminal-lite",
-    "version":  "0.3.0",
-    "description":  "ToatCloud Terminal Lite - minimal web-focused CLI for GitHub Actions VMs",
+    "version":  "0.4.0",
+    "description":  "ToatCloud Terminal Lite, minimal web-focused CLI for GitHub Actions VMs",
     "bin": {
         "toatcloud-terminal-lite": "./dist/index.js"
     },
