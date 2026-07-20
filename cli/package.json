@@ -1,16 +1,17 @@
 {
-    "name":  "toatvm",
+    "name":  "toatcloud-terminal",
     "version":  "0.3.0",
-    "description":  "ToatVM CLI spin up a virtual machine inside GitHub Actions runners, straight from your terminal.",
+    "description":  "ToatCloud Terminal CLI — boot and manage Linux VMs inside GitHub Actions runners.",
     "bin":  {
-                "toatvm":  "./dist/index.js"
+                "toatcloud-terminal":  "./dist/index.js"
             },
     "type":  "module",
     "files":  [
                   "dist"
               ],
     "keywords":  [
-                     "toatvm",
+                     "toatcloud",
+                     "terminal",
                      "vm",
                      "github-actions",
                      "cli"
@@ -24,7 +25,7 @@
                          "@clack/prompts":  "^0.7.0"
                      },
     "devDependencies":  {
-                            "@types/node":  "^22.10.0",
-                            "typescript":  "^5.6.3"
-                        }
+                             "@types/node":  "^22.10.0",
+                             "typescript":  "^5.6.3"
+                         }
 }

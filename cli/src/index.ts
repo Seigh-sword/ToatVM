@@ -40,9 +40,9 @@ function brand(): void {
 
 function help(): void {
   console.log(`${BANNER}
-${"ToatVM CLI".padEnd(0)} v${VERSION}
+${"ToatCloud Terminal CLI".padEnd(0)} v${VERSION}
 
-A virtual machine that runs inside GitHub Actions runners.
+A terminal in your browser, powered by GitHub Actions runners.
 Experimental - not for permanent or production use.
 
 INSTALL

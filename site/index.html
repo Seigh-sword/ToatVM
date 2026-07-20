@@ -1,102 +1,12 @@
 <!doctype html>
 <html lang="en">
   <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>ToatVM - a VM inside GitHub Actions</title>
-    <link rel="stylesheet" href="/assets/site.css" />
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ToatCloud Terminal</title>
   </head>
   <body>
-    <nav class="nav">
-      <span class="brand">ToatVM</span>
-      <span class="links">
-        <a href="/">Home</a>
-        <a href="/install">Install</a>
-        <a href="/os">OS</a>
-        <a href="/share">Share</a>
-        <a href="/license">License</a>
-        <a href="/terms">Terms</a>
-        <a href="https://github.com/Seigh-sword/ToatVM">GitHub</a>
-      </span>
-    </nav>
-
-    <section class="hero">
-      <pre class="ascii">
- ____  ____  ____  ___  __  __    __  __  ___  ____  ____
-/ ___|| ___|/ ___|/ _ \ \ \/ /   / / | |/ _ \/ ___|| __ )
-\___ \|___|| |   | | | | \  /   / /  | | | | \___ \|  _ \
- ___) |___)| |___| |_| | /  \  / /___| | |_| |___) | |_) |
-|____/|____/ \____|\___/ /_/\_\\____/|_|\___/|____/|____/
-      </pre>
-      <h1>The VM that lives inside GitHub Actions</h1>
-      <p>
-        ToatVM boots a real operating system on a GitHub Actions runner and
-        hands you a browser/terminal you can open anywhere. Driven entirely
-        from your terminal with the <code>toatvm</code> CLI.
-      </p>
-      <a class="btn" href="/install">Install ToatVM</a>
-      <a class="btn ghost" href="https://github.com/Seigh-sword/ToatVM">View source</a>
-    </section>
-
-    <div class="cards">
-      <div class="card">
-        <h3>One command</h3>
-        <p><code>npm i -g toatvm</code> then <code>toatvm -init</code>.</p>
-      </div>
-      <div class="card">
-        <h3>Any OS</h3>
-        <p>Ubuntu, Debian, Arch, Alpine, Fedora, Kali — in Docker.</p>
-      </div>
-      <div class="card">
-        <h3>Terminal + Desktop</h3>
-        <p>A shell, or a full XFCE GUI over noVNC.</p>
-      </div>
-      <div class="card">
-        <h3>Templates</h3>
-        <p>Save and reuse boot configs with <code>toatvm -template</code>.</p>
-      </div>
-      <div class="card">
-        <h3>Port forwards</h3>
-        <p>Expose container ports via cloudflared tunnel.</p>
-      </div>
-      <div class="card">
-        <h3>Shareable</h3>
-        <p>Hand a <code>*.trycloudflare.com</code> URL to a friend (password option).</p>
-      </div>
-    </div>
-
-    <div class="container">
-      <p class="note">
-        <strong>Experimental.</strong> Runners are ephemeral and not private.
-        Not for permanent or production use. Each session runs up to ~6h and
-        restarts every cycle from a cached state.
-      </p>
-      <h2>Quick start</h2>
-      <pre>npm i -g toatvm
-toatvm -new        # owner / repo / PAT (repo + workflow scopes)
-toatvm -init       # pick OS, boot, get your live URL</pre>
-      <h2>How it works</h2>
-      <p>
-        <code>toatvm</code> calls the GitHub REST API with your PAT to dispatch a
-        workflow. The runner launches a Docker container of your chosen OS,
-        starts a shell (or desktop), and tunnels it to a public URL via
-        <code>cloudflared</code>. The CLI reads the URL and credentials from the
-        run's logs — no special token permission needed.
-      </p>
-      <h2>New in 0.3.0</h2>
-      <ul>
-        <li><strong>Templates:</strong> save, list, apply, and delete session configs with <code>toatvm -template</code></li>
-        <li><strong>Environment variables:</strong> pass JSON env vars into the container with <code>--env</code> or <code>toatvm -env</code></li>
-        <li><strong>Pre-run / post-run scripts:</strong> run shell commands inside the VM on boot or after the cycle</li>
-        <li><strong>Port forwards:</strong> expose host:container port mappings via the tunnel</li>
-        <li><strong>Resource limits:</strong> set CPU, memory, and disk size for the container</li>
-        <li><strong>Health checks:</strong> inspect run and job status with <code>toatvm -health</code></li>
-        <li><strong>Session history:</strong> view detailed history with <code>toatvm -history</code></li>
-        <li><strong>Import / export:</strong> migrate accounts between machines with <code>toatvm -import</code> and <code>toatvm -export</code></li>
-        <li><strong>Cleanup:</strong> cancel stale active runs with <code>toatvm -cleanup</code></li>
-      </ul>
-    </div>
-
-    <footer>ToatVM - MIT Licensed - Experimental - Not for production</footer>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

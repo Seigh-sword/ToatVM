@@ -1,9 +1,9 @@
 {
-    "name": "toatvm-lite",
-    "version": "0.3.0",
-    "description": "ToatVM Lite - minimal web-focused CLI for GitHub Actions VMs",
+    "name":  "toatcloud-terminal-lite",
+    "version":  "0.3.0",
+    "description":  "ToatCloud Terminal Lite - minimal web-focused CLI for GitHub Actions VMs",
     "bin": {
-        "toatvm-lite": "./dist/index.js"
+        "toatcloud-terminal-lite": "./dist/index.js"
     },
     "type": "module",
     "files": [
