@@ -21,14 +21,14 @@ This repo contains:
 
 ### npm (CLI)
 ```bash
-npm i -g toatvm
-toatvm -help
+npm i -g toatcloud-terminal
+toatcloud-terminal -help
 ```
 
 ### npm (Lite)
 ```bash
-npm i -g toatvm-lite
-toatvm-lite -help
+npm i -g toatcloud-terminal-lite
+toatcloud-terminal-lite -help
 ```
 
 ### From source (web client)
@@ -53,8 +53,8 @@ Requires [Node.js](https://nodejs.org) 18+.
 
 ### CLI
 ```bash
-toatvm -new      # create an account (owner / repo / PAT)
-toatvm -init     # pick OS, boot, get the live URL
+toatcloud-terminal -new      # create an account (owner / repo / PAT)
+toatcloud-terminal -init     # pick OS, boot, get the live URL
 ```
 
 ---
@@ -62,16 +62,16 @@ toatvm -init     # pick OS, boot, get the live URL
 ## How it works
 
 ```
- toatvm -init  OR  web client
-      │                    │
-      ▼                    ▼
+ toatcloud-terminal -init  OR  web client
+       │                    │
+       ▼                    ▼
  GitHub Actions runner (ubuntu-latest, Docker)
-      │
-      ├─ docker run <OS> + create user + mount cached home
-      ├─ ttyd → shell over WebSocket
-      └─ cloudflared tunnel → *.trycloudflare.com
-      │
-      ▼
+       │
+       ├─ docker run <OS> + create user + mount cached home
+       ├─ ttyd → shell over WebSocket
+       └─ cloudflared tunnel → *.trycloudflare.com
+       │
+       ▼
  Browser terminal (xterm.js + WebSocket)
 ```
 
@@ -97,7 +97,16 @@ exits — that's why `-stop` is graceful instead of a hard kill.
 12. **Cached home directory** persists files across the 1h cycle
 13. **Windows-friendly** hints
 14. **Config stored locally** at `~/.config/toatvm/config.json`
-15. **MIT licensed**, zero config files in the repo
+15. **Apache 2.0 licensed**, zero config files in the repo
+
+---
+
+## Documentation
+
+- **[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)** — Community guidelines
+- **[SECURITY.md](SECURITY.md)** — Security policy and vulnerability reporting
+- **[TERMS.md](TERMS.md)** — Terms of use
+- **[DEVELOPER_PROMPT.md](DEVELOPER_PROMPT.md)** — Comprehensive guide for AI/developers
 
 ---
 
@@ -108,12 +117,12 @@ exits — that's why `-stop` is graceful instead of a hard kill.
 | `.github/workflows/vm.yml` | Terminal VM: Docker OS + user + ttyd + tunnel |
 | `.github/workflows/vm-desktop.yml` | Desktop VM: XFCE + TigerVNC + noVNC + tunnel |
 | `.github/workflows/ci.yml` | Build check |
-| `cli/` | The `toatvm` CLI (TypeScript, `@clack/prompts`) |
+| `cli/` | The `toatcloud-terminal` CLI (TypeScript, `@clack/prompts`) |
 | `cli-lite/` | Minimal web-focused CLI |
 | `site/` | React + Vite + TypeScript web client |
 
 To self-host the backend, fork the repo, enable Actions, add a PAT with
-`repo` + `workflow`, and point `toatvm -new` at your fork.
+`repo` + `workflow`, and point `toatcloud-terminal -new` at your fork.
 
 ---
 
@@ -121,13 +130,13 @@ To self-host the backend, fork the repo, enable Actions, add a PAT with
 
 ```bash
 # Install CLI
-npm i -g toatvm
-toatvm -version
-toatvm -help
+npm i -g toatcloud-terminal
+toatcloud-terminal -version
+toatcloud-terminal -help
 
 # Quick smoke test
-toatvm -new
-toatvm -init
+toatcloud-terminal -new
+toatcloud-terminal -init
 
 # Test web client
 cd site
@@ -136,11 +145,11 @@ npm run dev
 ```
 
 Run through the core flows:
-1. `toatvm -new` → save an account
-2. `toatvm -init` → boot a terminal session, confirm URL appears
-3. `toatvm -status` → confirm live session details
-4. `toatvm -url --copy` → confirm clipboard gets the URL
-5. `toatvm -stop` → confirm graceful shutdown
+1. `toatcloud-terminal -new` → save an account
+2. `toatcloud-terminal -init` → boot a terminal session, confirm URL appears
+3. `toatcloud-terminal -status` → confirm live session details
+4. `toatcloud-terminal -url --copy` → confirm clipboard gets the URL
+5. `toatcloud-terminal -stop` → confirm graceful shutdown
 
 If anything fails, check the Actions tab in your repo for runner logs.
 

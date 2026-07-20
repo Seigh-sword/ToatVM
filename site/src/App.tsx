@@ -29,6 +29,9 @@ export default function App() {
           <nav className="nav">
             <span className="brand">ToatCloud Terminal</span>
             <span className="links">
+              <a href="/CODE_OF_CONDUCT.md">Code of Conduct</a>
+              <a href="/SECURITY.md">Security</a>
+              <a href="/TERMS.md">Terms</a>
               <a href="https://github.com/Seigh-sword/ToatVM">GitHub</a>
             </span>
           </nav>
@@ -69,7 +72,7 @@ export default function App() {
               restarts every cycle from a cached state.
             </p>
           </div>
-          <footer>ToatCloud Terminal - MIT Licensed - Experimental</footer>
+          <footer>ToatCloud Terminal - Apache 2.0 - Experimental</footer>
         </>
       )}
       {view === "terminal" && (
